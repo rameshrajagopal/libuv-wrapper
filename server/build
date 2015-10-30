@@ -1,0 +1,1 @@
+gcc -g -Wall -std=c11 -I../include/ -o server -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include server.c -luv
