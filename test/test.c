@@ -1,5 +1,24 @@
 #include "libuv-wrap.h"
+#include <assert.h>
 #include <stdio.h>
+
+typedef struct 
+{
+    int num;
+    handle_t handle;
+}test_task_t;
+
+#define MAX_NUM_THREADS  (5)
+
+void client_test_task(void * arg)
+{
+    test_task_t * task = (test_task_t *)arg;
+    char buf[1024] = {0};
+    int ret = -1;
+
+    ret = libuv_send(task->handle, (const uint8_t *)buf, sizeof(buf));
+    printf("test:%d write status: %d\n", task->num, ret);
+}
 
 int main(void)
 {
@@ -9,9 +28,14 @@ int main(void)
     if (ret < 0) {
         return -1;
     }
-    char buf[1024] = {0};
-    ret = libuv_send(handle, (const uint8_t *)buf, sizeof(buf));
-    printf("test: write status: %d\n", ret);
+    uv_thread_t ids[MAX_NUM_THREADS];
+    test_task_t tasks[MAX_NUM_THREADS];
+    for (int num = 0; num < MAX_NUM_THREADS; ++num) {
+        tasks[num].num = num;
+        tasks[num].handle = handle;
+        ret = uv_thread_create(&ids[num], client_test_task, (void *)&tasks[num]);
+        assert(ret == 0);
+    }
     getchar();
     return 0;
 }

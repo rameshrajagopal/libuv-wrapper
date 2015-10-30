@@ -34,7 +34,6 @@ static void after_shutdown_cb(uv_shutdown_t* req, int status) {
 }
 
 
-#if 0
 static void after_write_cb(uv_write_t* req, int status) 
 {
   write_req_t * wr = (write_req_t*)req;
@@ -53,9 +52,8 @@ static void after_write_cb(uv_write_t* req, int status)
   if (status == UV_ECANCELED)
     return;
   assert(status == UV_EPIPE);
-  uv_close((uv_handle_t*)req->handle, on_close_cb);
+  //uv_close((uv_handle_t*)req->handle, on_close_cb);
 }
-#endif
 
 #if 0
 void work_request_cb(uv_work_t * req)
@@ -118,17 +116,14 @@ static void after_read_cb(uv_stream_t * handle,
       DBG_PRINT("%s:%d length: %ld\n", __FUNCTION__, __LINE__, nread);
      return;
   }
-#if 0
-  /* generate ReqNum here and map ReqNum -> handle */
-  struct request * c_req = malloc(sizeof(struct request));
-  assert(c_req != NULL);
-  c_req->req.data = (void *)c_req;
-  c_req->client_req_num = client_req_num++;
-  c_req->handle = (uv_handle_t *)handle;
-  c_req->buf = buf;
-  c_req->nread = nread;
-  uv_queue_work(uv_default_loop(), &c_req->req, work_request_cb, work_request_cleanup_cb);
-#endif
+
+    DBG();
+    write_req_t * wr = (write_req_t *) malloc(sizeof(*wr));
+    assert(wr != NULL);
+
+    wr->buf = uv_buf_init(buf->base, nread);
+    r = uv_write(&wr->req, (uv_stream_t *)handle, &wr->buf, 1, after_write_cb);
+    assert(r == 0);
 }
 
 static void alloc_cb(uv_handle_t* handle,

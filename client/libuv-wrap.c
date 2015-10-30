@@ -16,7 +16,7 @@ static void libuv_idle_cb(uv_idle_t * handle)
 
 static void on_connect_cb(uv_connect_t * req, int status)
 {
-    client_info_t * client = uv_key_get(&client_key);
+    client_info_t * client = (client_info_t *) req;
 
     DBG_FUNC_ENTER();
     DBG_PRINT("%s client: %p\n", __FUNCTION__, client);
@@ -27,8 +27,28 @@ static void on_connect_cb(uv_connect_t * req, int status)
     } 
     /* notify the connect caller */
     client->status = DONE;
-    uv_ref((uv_handle_t *)req->handle);
+    client->handle = (uv_stream_t *)client->req.handle;
     uv_cond_signal(&client->cond);
+    DBG_PRINT("%s: handle: %p %p\n", __FUNCTION__, client->handle, &client->tcp_client);
+    DBG_FUNC_EXIT();
+}
+
+static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * buf)
+{
+    DBG_FUNC_ENTER();
+    if (nread < 0) {
+        DBG_ERR("error on read");
+        return;
+    }
+    DBG_VERBOSE("stream: %p nread: %ld buf: %p\n", stream, nread, buf);
+    DBG_FUNC_EXIT();
+}
+
+static void alloc_buffer_cb(uv_handle_t * handle, size_t size, uv_buf_t * buf)
+{
+    DBG_FUNC_ENTER();
+    *buf = uv_buf_init((char *) malloc(size), size);
+    DBG_VERBOSE("handle: %p buf %p \n", handle, buf);
     DBG_FUNC_EXIT();
 }
 
@@ -36,7 +56,7 @@ static void write_end_cb(uv_write_t * req, int status)
 {
     write_req_t * wr = (write_req_t *) req;
     DBG_FUNC_ENTER();
-    DBG_PRINT("%s client: %p\n", __FUNCTION__, wr);
+    DBG_PRINT("%s write req: %p\n", __FUNCTION__, wr);
     if (status < 0) {
         DBG_ERR("write err %s\n", uv_strerror(status));
     }
@@ -45,6 +65,9 @@ static void write_end_cb(uv_write_t * req, int status)
     wr->progress = DONE;
     uv_mutex_unlock(&wr->mutex);
     uv_cond_signal(&wr->cond);
+    /* register the callback for reading */
+    uv_read_start(wr->req.handle, alloc_buffer_cb, data_read_cb);
+    /* free the memory */
     DBG_FUNC_EXIT();
 }
 
@@ -155,6 +178,7 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     wait_for_response(client);
     ret = client->error.err;
     if (ret == 0) {
+        DBG_PRINT("handle: %p\n", client);
         *handle = (handle_t) client;
     }
     clear_error(&client->error);
@@ -185,15 +209,17 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len)
 
     DBG_FUNC_ENTER();
     assert((data != NULL) || (len != 0));
-    assert((client != NULL) || (client->magic == HEADER_MAGIC));
+    assert((client != NULL) && (client->magic == HEADER_MAGIC));
     /* write the data on to the tcp client req */
     write_req_t * wr = write_req_init();
     assert(wr != NULL);
 
-    DBG_PRINT("%s: wr: %p\n", __FUNCTION__, wr);
+    DBG_VERBOSE("%s: wr: %p\n", __FUNCTION__, wr);
     uv_buf_t buf = uv_buf_init((char *)data, len);
+
     uv_mutex_lock(&client->mutex);
-    int ret = uv_write(&wr->req, (uv_stream_t *)client->req.handle, &buf, 1, write_end_cb);
+    DBG_VERBOSE("%s: client: %p handle: %p\n", __FUNCTION__, client->handle, &client->tcp_client);
+    int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
     uv_mutex_unlock(&client->mutex);
     /* wait for response */
     uv_mutex_lock(&wr->mutex);

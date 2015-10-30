@@ -10,6 +10,7 @@
 #define DBG_PRINT(fmt...) printf(fmt)
 #define DBG_FUNC_ENTER()  printf("Enter %s:%d\n", __FUNCTION__, __LINE__)
 #define DBG_FUNC_EXIT()  printf("Exit %s:%d\n", __FUNCTION__, __LINE__)
+#define DBG_VERBOSE(fmt...) printf(fmt)
 
 typedef enum {
     ON_CONNECT_CB = 1,
@@ -38,6 +39,7 @@ typedef struct {
 typedef struct {
     uv_connect_t req;
     unsigned magic;
+    uv_stream_t * handle;
     uv_thread_t thread_id;
     uv_mutex_t  mutex;
     uv_cond_t   cond;
