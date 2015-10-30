@@ -30,7 +30,9 @@ typedef struct {
     uv_write_t req;
     uv_buf_t   buf;
     uv_mutex_t mutex;
-    uv_mutex_t cond;
+    uv_cond_t cond;
+    int status;
+    call_status_t progress;
 }write_req_t;
 
 typedef struct {

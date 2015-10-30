@@ -5,6 +5,14 @@
 #include <assert.h>
 
 uv_key_t client_key;
+uv_idle_t idle;
+
+static void libuv_idle_cb(uv_idle_t * handle)
+{
+    /* do nothing here, if possible, we can include some general check like
+     * heartbeat or anything that sort
+     */
+}
 
 static void on_connect_cb(uv_connect_t * req, int status)
 {
@@ -21,6 +29,22 @@ static void on_connect_cb(uv_connect_t * req, int status)
     client->status = DONE;
     uv_ref((uv_handle_t *)req->handle);
     uv_cond_signal(&client->cond);
+    DBG_FUNC_EXIT();
+}
+
+static void write_end_cb(uv_write_t * req, int status)
+{
+    write_req_t * wr = (write_req_t *) req;
+    DBG_FUNC_ENTER();
+    DBG_PRINT("%s client: %p\n", __FUNCTION__, wr);
+    if (status < 0) {
+        DBG_ERR("write err %s\n", uv_strerror(status));
+    }
+    uv_mutex_lock(&wr->mutex);
+    wr->status = status;
+    wr->progress = DONE;
+    uv_mutex_unlock(&wr->mutex);
+    uv_cond_signal(&wr->cond);
     DBG_FUNC_EXIT();
 }
 
@@ -93,6 +117,16 @@ static void clear_error(error_info_t * error)
     memset(error, '\0', sizeof(error_info_t));
 }
 
+static int libuv_idle_start(client_info_t * client)
+{
+    int r = uv_idle_init(client->loop, &idle);
+    assert(r == 0);
+
+    r = uv_idle_start(&idle, libuv_idle_cb);
+    assert(r == 0);
+    return r;
+}
+
 int libuv_connect(const char * addr, int port, handle_t * handle)
 {
     client_info_t * client; 
@@ -107,13 +141,17 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     assert(ret == 0);
 
     client = client_info_init();
-    /* create a io thread */
-    ret = uv_thread_create(&client->thread_id, client_io_loop, (void *)client);
-    assert(ret == 0);
     /*tcp init */
     client->status = IN_PROGRESS;
     ret = tcp_client_init(addr, port, client);
     assert(ret == 0);
+    /* create a io thread */
+    ret = uv_thread_create(&client->thread_id, client_io_loop, (void *)client);
+    assert(ret == 0);
+    /* idle loop start */
+    ret = libuv_idle_start(client);
+    assert(ret == 0);
+
     wait_for_response(client);
     ret = client->error.err;
     if (ret == 0) {
@@ -132,7 +170,10 @@ static write_req_t * write_req_init(void)
     int r = uv_mutex_init(&wr->mutex);
     assert(r == 0);
 
-    int w = uv_cond_init(&wr->cond);
+    wr->status = 0;
+    wr->progress = IN_PROGRESS;
+
+    r = uv_cond_init(&wr->cond);
     assert(r == 0);
 
     return wr;
@@ -143,15 +184,23 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len)
     client_info_t * client = handle;
 
     DBG_FUNC_ENTER();
-    assert((data == NULL) || (len == 0));
-    assert((client == NULL) || (client->magic != HEADER_MAGIC));
+    assert((data != NULL) || (len != 0));
+    assert((client != NULL) || (client->magic == HEADER_MAGIC));
     /* write the data on to the tcp client req */
     write_req_t * wr = write_req_init();
-    assert(write_req != NULL);
+    assert(wr != NULL);
 
-    uv_buf_t buf = uv_buf_init(data, len);
+    DBG_PRINT("%s: wr: %p\n", __FUNCTION__, wr);
+    uv_buf_t buf = uv_buf_init((char *)data, len);
     uv_mutex_lock(&client->mutex);
     int ret = uv_write(&wr->req, (uv_stream_t *)client->req.handle, &buf, 1, write_end_cb);
     uv_mutex_unlock(&client->mutex);
+    /* wait for response */
+    uv_mutex_lock(&wr->mutex);
+    while (wr->progress == IN_PROGRESS) {
+        uv_cond_wait(&wr->cond, &wr->mutex);
+    }
+    ret = wr->status;
+    DBG_FUNC_EXIT();
     return ret;
 }
