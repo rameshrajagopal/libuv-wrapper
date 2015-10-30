@@ -3,6 +3,9 @@
 
 #include <stdio.h>
 #include <uv.h>
+#include <uthash.h>
+
+#include "utils.h"
 
 #define HEADER_MAGIC (0xDEADBEEF)
 
@@ -37,10 +40,27 @@ typedef struct {
 }write_req_t;
 
 typedef struct {
+    int id;
+    call_status_t progress;
+    uv_mutex_t mutex;
+    uv_cond_t  cond;
+    uint8_t *  buf;
+    uint32_t   len;
+    UT_hash_handle hh;
+}response_t;
+
+typedef struct {
+    char * buf;
+    ssize_t len;
+    ssize_t offset;
+}res_buf_t;
+
+typedef struct {
     uv_connect_t req;
     unsigned magic;
     uv_stream_t * handle;
-    uv_thread_t thread_id;
+    uv_thread_t tid_io_loop;
+    uv_thread_t tid_resp_split;
     uv_mutex_t  mutex;
     uv_cond_t   cond;
     uv_tcp_t    tcp_client;
@@ -48,12 +68,15 @@ typedef struct {
     error_info_t error;
     uv_sem_t    sem;
     call_status_t status;
+    int req_id;
+    queue_t    * res_q;
+    response_t * hash;
 }client_info_t;
 
 typedef void * handle_t;
 int libuv_connect(const char * addr, int port, handle_t * handle);
-int libuv_send(handle_t handle, const uint8_t * data, uint32_t len);
-int libuv_recv(handle_t handle, uint8_t * data, uint32_t nread);
+int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id);
+int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread);
 int libuv_disconnect(handle_t handle);
 
 #endif /*__LIBUV_WRAP_H_INCLUDED__*/

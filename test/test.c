@@ -15,9 +15,10 @@ void client_test_task(void * arg)
     test_task_t * task = (test_task_t *)arg;
     char buf[1024] = {0};
     int ret = -1;
+    int req_id;
 
-    ret = libuv_send(task->handle, (const uint8_t *)buf, sizeof(buf));
-    printf("test:%d write status: %d\n", task->num, ret);
+    ret = libuv_send(task->handle, (const uint8_t *)buf, sizeof(buf), &req_id);
+    printf("test:%d write status: %d req_id: %d\n", task->num, ret, req_id);
 }
 
 int main(void)

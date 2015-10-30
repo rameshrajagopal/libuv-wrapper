@@ -36,11 +36,19 @@ static void on_connect_cb(uv_connect_t * req, int status)
 static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * buf)
 {
     DBG_FUNC_ENTER();
+    client_info_t * client = uv_key_get(&client_key);
+
     if (nread < 0) {
         DBG_ERR("error on read");
         return;
     }
     DBG_VERBOSE("stream: %p nread: %ld buf: %p\n", stream, nread, buf);
+    res_buf_t * res = malloc(sizeof(res_buf_t));
+    assert(res != NULL);
+    res->buf = buf->base;
+    res->len = nread;
+    res->offset = 0;
+    queue_push(client->res_q, (void *)res);
     DBG_FUNC_EXIT();
 }
 
@@ -120,6 +128,12 @@ client_info_t * client_info_init(void)
     r = uv_cond_init(&client->cond);
     assert(r == 0);
 
+    client->res_q = queue_init();
+    assert(client->res_q != NULL);
+
+    client->hash = NULL;
+    client->req_id = 0;
+
     DBG_FUNC_EXIT();
     return client;
 }
@@ -150,6 +164,21 @@ static int libuv_idle_start(client_info_t * client)
     return r;
 }
 
+void response_split_task(void * arg)
+{
+    client_info_t * client = arg;
+
+    DBG_FUNC_ENTER();
+    DBG_VERBOSE("%s: client: %p\n", __FUNCTION__, client);
+    while (1) {
+        const res_buf_t * buf = queue_pop(client->res_q);
+        /* write a response split using fixed len */
+        DBG_VERBOSE("%s: buf: %p len: %ld offset: %ld\n", __FUNCTION__, buf->buf, buf->len, buf->offset);
+        /* found a response update the hash field */
+    }
+    DBG_FUNC_EXIT();
+}
+
 int libuv_connect(const char * addr, int port, handle_t * handle)
 {
     client_info_t * client; 
@@ -169,7 +198,10 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     ret = tcp_client_init(addr, port, client);
     assert(ret == 0);
     /* create a io thread */
-    ret = uv_thread_create(&client->thread_id, client_io_loop, (void *)client);
+    ret = uv_thread_create(&client->tid_io_loop, client_io_loop, (void *)client);
+    assert(ret == 0);
+    /* thread for splitting response */
+    ret = uv_thread_create(&client->tid_resp_split, response_split_task, (void *)client);
     assert(ret == 0);
     /* idle loop start */
     ret = libuv_idle_start(client);
@@ -203,7 +235,30 @@ static write_req_t * write_req_init(void)
     return wr;
 }
 
-int libuv_send(handle_t handle, const uint8_t * data, uint32_t len)
+static void add_response(int id, response_t * res, response_t ** hash) 
+{
+    HASH_ADD_INT(*hash, id, res);
+}
+
+static response_t * response_init(void)
+{
+    response_t * res = malloc(sizeof(response_t));
+    assert(res != NULL);
+
+    int r = uv_mutex_init(&res->mutex);
+    assert(r == 0);
+
+    r = uv_cond_init(&res->cond);
+    assert(r == 0);
+
+    res->buf = NULL;
+    res->len = 0;
+    res->progress = IN_PROGRESS;
+    res->id = 0;
+    return res;
+}
+
+int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id)
 {
     client_info_t * client = handle;
 
@@ -217,8 +272,15 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len)
     DBG_VERBOSE("%s: wr: %p\n", __FUNCTION__, wr);
     uv_buf_t buf = uv_buf_init((char *)data, len);
 
+    /* allocate response for this request */
+    response_t * res = response_init();
+    assert(res != NULL);
+
     uv_mutex_lock(&client->mutex);
     DBG_VERBOSE("%s: client: %p handle: %p\n", __FUNCTION__, client->handle, &client->tcp_client);
+    res->id = ++client->req_id;
+    *req_id = res->id;
+    add_response(res->id, res, &client->hash);
     int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
     uv_mutex_unlock(&client->mutex);
     /* wait for response */
