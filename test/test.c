@@ -13,12 +13,18 @@ typedef struct
 void client_test_task(void * arg)
 {
     test_task_t * task = (test_task_t *)arg;
-    char buf[1024] = {0};
+    char buf[1004] = {0};
     int ret = -1;
     int req_id;
+    char recv_buf[1024] = {0};
+    int more = 0;
 
+    memset(buf, 'a' + task->num, sizeof(buf));
     ret = libuv_send(task->handle, (const uint8_t *)buf, sizeof(buf), &req_id);
     printf("test:%d write status: %d req_id: %d\n", task->num, ret, req_id);
+    ret = libuv_recv(task->handle, req_id, (uint8_t *)recv_buf, sizeof(recv_buf), &more);
+    printf("********************test: %d read status: %d more: %d\n", task->num, ret, more);
+    printf("%d: %.*s\n", task->num, ret, recv_buf);
 }
 
 int main(void)

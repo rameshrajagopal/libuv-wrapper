@@ -6,6 +6,7 @@
 
 uv_key_t client_key;
 uv_idle_t idle;
+static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
 
 static void libuv_idle_cb(uv_idle_t * handle)
 {
@@ -48,7 +49,7 @@ static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * b
     res->buf = buf->base;
     res->len = nread;
     res->offset = 0;
-    queue_push(client->res_q, (void *)res);
+    queue_push(client->buf_q, (void *)res);
     DBG_FUNC_EXIT();
 }
 
@@ -128,6 +129,9 @@ client_info_t * client_info_init(void)
     r = uv_cond_init(&client->cond);
     assert(r == 0);
 
+    client->buf_q = queue_init();
+    assert(client->buf_q != NULL);
+
     client->res_q = queue_init();
     assert(client->res_q != NULL);
 
@@ -170,11 +174,147 @@ void response_split_task(void * arg)
 
     DBG_FUNC_ENTER();
     DBG_VERBOSE("%s: client: %p\n", __FUNCTION__, client);
+    /* variables for handling response split */
+    char temp[1024];
+    uint32_t temp_len = 0;
+    read_stages_t stage = HEADER_LEN_READ;
+    uint32_t payload_offset = 0;
+    response_t * resp = NULL;
+    uint32_t rem_size = 0;
     while (1) {
-        const res_buf_t * buf = queue_pop(client->res_q);
+        res_buf_t * cur_buf = (res_buf_t *)queue_pop(client->buf_q);
+        DBG_VERBOSE("%s: buf: %p len: %ld offset: %ld\n", __FUNCTION__, cur_buf->buf, cur_buf->len, cur_buf->offset);
         /* write a response split using fixed len */
-        DBG_VERBOSE("%s: buf: %p len: %ld offset: %ld\n", __FUNCTION__, buf->buf, buf->len, buf->offset);
-        /* found a response update the hash field */
+        rem_size = cur_buf->len - cur_buf->offset + temp_len;
+        DBG_VERBOSE("rem_size: %u\n", rem_size);
+        if (temp_len > 0) {
+            if (rem_size > 0) {
+                switch(stage) {
+                    case HEADER_LEN_READ:
+                    {
+                        uint32_t hdr_len = 0;
+                        memcpy((uint8_t *)&hdr_len, temp, temp_len);
+                        memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN - temp_len);
+                        printf("HEADER length: %u\n", hdr_len);
+                        resp->header_len = hdr_len;
+                        temp_len = 0;
+                        rem_size -= HEADER_SIZE_LEN;
+                        stage = HEADER_READ;
+                        break;
+                    }
+                    case HEADER_READ:
+                    {
+                        memcpy((uint8_t *)&resp->hdr, temp, temp_len);
+                        memcpy(((uint8_t *)&resp->hdr) + temp_len, cur_buf->buf + cur_buf->offset, resp->header_len - temp_len);
+                        printf("REQUEST id: %u\n", resp->hdr.id);
+                        temp_len = 0;
+                        rem_size -= resp->header_len;
+                        stage = PAYLOAD_READ;
+                        break;
+                    }
+                    default:
+                        printf("INVALID case needs to be find out");
+                        assert(0);
+                        break;
+                }
+            }
+        }
+        while (rem_size > 0) {
+            switch(stage) {
+                case HEADER_LEN_READ:
+                    if (rem_size < HEADER_SIZE_LEN){
+                        memcpy(temp, cur_buf->buf + cur_buf->offset, rem_size);
+                        temp_len = rem_size;
+                        cur_buf->offset += rem_size;
+                        rem_size = 0;
+                    } else {
+                        resp = malloc(sizeof(response_t));
+                        assert(resp != NULL);
+                        DBG_PRINT("Allocated resp: %p\n", resp);
+                        resp->buf = NULL;
+
+                        read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN, &resp->header_len);
+                        cur_buf->offset += HEADER_SIZE_LEN;
+                        rem_size -= HEADER_SIZE_LEN;
+                        printf("HEADER: %u\n", resp->header_len);
+                        stage = HEADER_READ;
+                    }
+                    break;
+                case HEADER_READ:
+                    if (rem_size < resp->header_len) {
+                        memcpy(temp, cur_buf->buf + cur_buf->offset, rem_size);
+                        temp_len = rem_size;
+                        cur_buf->offset += rem_size;
+                        rem_size = 0;
+                    } else {
+                        read_pkt_hdr((uint8_t *)cur_buf->buf + cur_buf->offset, resp->header_len, &resp->hdr);
+                        printf("HEADER: %x %x %x %x\n", resp->hdr.magic, resp->hdr.len, resp->hdr.id, resp->hdr.future);
+                        rem_size -= resp->header_len;
+                        cur_buf->offset += resp->header_len;
+                        stage = PAYLOAD_READ;
+                    }
+                    break;
+                case PAYLOAD_READ:
+                    if (payload_offset > 0) {
+                        size_t len_to_read = resp->hdr.len - payload_offset;
+                        if (rem_size < len_to_read) {
+                            memcpy(resp->buf + payload_offset, cur_buf->buf + cur_buf->offset, rem_size);
+                            payload_offset += rem_size;
+                            cur_buf->offset += rem_size;
+                            rem_size = 0;
+                        } else {
+                            memcpy(resp->buf + payload_offset, cur_buf->buf + cur_buf->offset, len_to_read);
+                            payload_offset = 0;
+                            rem_size -= len_to_read;
+                            cur_buf->offset += len_to_read;
+                        }
+                    } else {
+                        resp->buf = malloc(resp->hdr.len);
+                        assert(resp->buf != NULL);
+
+                        if (rem_size < resp->hdr.len) {
+                            memcpy(resp->buf, cur_buf->buf + cur_buf->offset, rem_size);
+                            payload_offset = rem_size;
+                            rem_size = 0;
+                            cur_buf->offset += rem_size;
+                        } else {
+                            memcpy(resp->buf, cur_buf->buf + cur_buf->offset, resp->hdr.len);
+                            rem_size -= resp->hdr.len;
+                            cur_buf->offset += resp->hdr.len;
+                        }
+                    }
+                    /* response is done, push it to the queue */
+                    printf("GOT THE RESPONSE for ID: %u\n", resp->hdr.id);
+                    DBG_VERBOSE("Pushed response %p to Queue\n", resp);
+                    queue_push(client->res_q, (void *)resp);
+                    resp = NULL;
+                    stage = HEADER_LEN_READ;
+                    break;
+            }
+        }
+    }
+    DBG_FUNC_EXIT();
+}
+
+void response_mapper_task(void * arg)
+{
+    client_info_t * client = arg;
+
+    DBG_FUNC_ENTER();
+    DBG_VERBOSE("%s: client: %p\n", __FUNCTION__, client);
+    while (1) {
+        response_t * resp = (response_t *)queue_pop(client->res_q);
+        DBG_VERBOSE("Pop response : %p\n", resp);
+        /* get the info from hash map using req_id */
+        response_header_t * resp_header = NULL;
+        find_response_header(resp->hdr.id, &resp_header, &client->hash);
+        assert(resp_header != NULL);
+        /* notify the waiter */
+        uv_mutex_lock(&resp_header->mutex);
+        resp_header->resp = resp;
+        resp_header->progress = DONE;
+        uv_mutex_unlock(&resp_header->mutex);
+        uv_cond_signal(&resp_header->cond);
     }
     DBG_FUNC_EXIT();
 }
@@ -202,6 +342,9 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     assert(ret == 0);
     /* thread for splitting response */
     ret = uv_thread_create(&client->tid_resp_split, response_split_task, (void *)client);
+    assert(ret == 0);
+    /* thread for mapping req->response */
+    ret = uv_thread_create(&client->tid_res_mapper, response_mapper_task, (void *)client);
     assert(ret == 0);
     /* idle loop start */
     ret = libuv_idle_start(client);
@@ -235,14 +378,18 @@ static write_req_t * write_req_init(void)
     return wr;
 }
 
-static void add_response(int id, response_t * res, response_t ** hash) 
+static void add_response_header(int id, response_header_t * res, response_header_t ** hash) 
 {
     HASH_ADD_INT(*hash, id, res);
 }
-
-static response_t * response_init(void)
+static void find_response_header(int id, response_header_t **res, response_header_t ** hash)
 {
-    response_t * res = malloc(sizeof(response_t));
+    HASH_FIND_INT(*hash, &id, *res);
+}
+
+static response_header_t * response_init(void)
+{
+    response_header_t * res = malloc(sizeof(response_header_t));
     assert(res != NULL);
 
     int r = uv_mutex_init(&res->mutex);
@@ -251,10 +398,9 @@ static response_t * response_init(void)
     r = uv_cond_init(&res->cond);
     assert(r == 0);
 
-    res->buf = NULL;
-    res->len = 0;
     res->progress = IN_PROGRESS;
     res->id = 0;
+    res->resp = NULL;
     return res;
 }
 
@@ -270,17 +416,16 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id
     assert(wr != NULL);
 
     DBG_VERBOSE("%s: wr: %p\n", __FUNCTION__, wr);
-    uv_buf_t buf = uv_buf_init((char *)data, len);
-
     /* allocate response for this request */
-    response_t * res = response_init();
+    response_header_t * res = response_init();
     assert(res != NULL);
 
     uv_mutex_lock(&client->mutex);
     DBG_VERBOSE("%s: client: %p handle: %p\n", __FUNCTION__, client->handle, &client->tcp_client);
     res->id = ++client->req_id;
     *req_id = res->id;
-    add_response(res->id, res, &client->hash);
+    uv_buf_t buf = create_request(data, len, res->id);
+    add_response_header(res->id, res, &client->hash);
     int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
     uv_mutex_unlock(&client->mutex);
     /* wait for response */
@@ -291,4 +436,35 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id
     ret = wr->status;
     DBG_FUNC_EXIT();
     return ret;
+}
+
+int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int * more)
+{
+    client_info_t * client = handle;
+
+    DBG_FUNC_ENTER();
+    assert((data != NULL) || (nread != 0));
+    assert((client != NULL) && (client->magic == HEADER_MAGIC));
+    /* allocate response for this request */
+    response_header_t * res_hdr = NULL;
+    find_response_header(req_id, &res_hdr, &client->hash);
+    assert(res_hdr != NULL);
+
+    DBG_VERBOSE("%s: waiting for response\n", __FUNCTION__);
+    uv_mutex_lock(&res_hdr->mutex);
+    while (res_hdr->progress == IN_PROGRESS) {
+        uv_cond_wait(&res_hdr->cond, &res_hdr->mutex);
+    }
+    uv_mutex_unlock(&res_hdr->mutex);
+    if (res_hdr->resp->hdr.len > nread) {
+        memcpy(data, res_hdr->resp->buf, nread);
+        *more = 1;
+    } else {
+        nread = res_hdr->resp->hdr.len;
+        memcpy(data, res_hdr->resp->buf, nread);
+        *more = 0;
+        /* delete the response from hash table */
+    }
+    DBG_FUNC_EXIT();
+    return nread;
 }
