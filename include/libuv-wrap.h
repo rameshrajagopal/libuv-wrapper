@@ -11,6 +11,7 @@
 #define HEADER_MAGIC (0xDEADBEEF)
 
 #define DBG_ERR(fmt...) printf(fmt)
+#define DBG_INFO(fmt...) printf(fmt)
 #define DBG_PRINT(fmt...) printf(fmt)
 #define DBG_FUNC_ENTER()  printf("Enter %s:%d\n", __FUNCTION__, __LINE__)
 #define DBG_FUNC_EXIT()  printf("Exit %s:%d\n", __FUNCTION__, __LINE__)
@@ -18,7 +19,6 @@
 
 typedef enum {
     ON_CONNECT_CB = 1,
-
 }cb_id_t;
 
 typedef enum {
@@ -61,8 +61,11 @@ typedef struct {
     ssize_t offset;
 }res_buf_t;
 
+typedef enum { ACTIVE = 1, CLOSED = 2} connect_status_t;
+
 typedef struct {
     uv_connect_t req;
+    connect_status_t status;
     unsigned magic;
     uv_stream_t * handle;
     uv_thread_t tid_io_loop;
@@ -74,11 +77,12 @@ typedef struct {
     uv_loop_t   * loop;
     error_info_t error;
     uv_sem_t    sem;
-    call_status_t status;
+    call_status_t progress;
     int req_id;
     queue_t    * buf_q;
     queue_t    * res_q;
     response_header_t * hash;
+    uv_idle_t idle;
 }client_info_t;
 
 typedef void * handle_t;

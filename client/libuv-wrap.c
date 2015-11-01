@@ -5,7 +5,6 @@
 #include <assert.h>
 
 uv_key_t client_key;
-uv_idle_t idle;
 static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
 
 static void libuv_idle_cb(uv_idle_t * handle)
@@ -25,12 +24,20 @@ static void on_connect_cb(uv_connect_t * req, int status)
     client->error.err = status;
     if (status < 0) {
         DBG_ERR("listen err %s\n", uv_strerror(status));
-    } 
+    } else {
+        client->status = ACTIVE;
+    }
     /* notify the connect caller */
-    client->status = DONE;
+    client->progress = DONE;
     client->handle = (uv_stream_t *)client->req.handle;
     uv_cond_signal(&client->cond);
     DBG_PRINT("%s: handle: %p %p\n", __FUNCTION__, client->handle, &client->tcp_client);
+    DBG_FUNC_EXIT();
+}
+
+static void close_cb(uv_handle_t * handle)
+{
+    DBG_FUNC_ENTER();
     DBG_FUNC_EXIT();
 }
 
@@ -40,7 +47,9 @@ static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * b
     client_info_t * client = uv_key_get(&client_key);
 
     if (nread < 0) {
-        DBG_ERR("error on read");
+        DBG_ERR("error on read\n");
+        free(buf->base);
+        uv_close((uv_handle_t *)stream, close_cb);
         return;
     }
     DBG_VERBOSE("stream: %p nread: %ld buf: %p\n", stream, nread, buf);
@@ -146,7 +155,7 @@ static void wait_for_response(client_info_t * client)
 {
     DBG_FUNC_ENTER();
     uv_mutex_lock(&client->mutex);
-    while (client->status == IN_PROGRESS) {
+    while (client->progress == IN_PROGRESS) {
         uv_cond_wait(&client->cond, &client->mutex);
     }
     uv_mutex_unlock(&client->mutex);
@@ -160,10 +169,10 @@ static void clear_error(error_info_t * error)
 
 static int libuv_idle_start(client_info_t * client)
 {
-    int r = uv_idle_init(client->loop, &idle);
+    int r = uv_idle_init(client->loop, &client->idle);
     assert(r == 0);
 
-    r = uv_idle_start(&idle, libuv_idle_cb);
+    r = uv_idle_start(&client->idle, libuv_idle_cb);
     assert(r == 0);
     return r;
 }
@@ -181,8 +190,14 @@ void response_split_task(void * arg)
     uint32_t payload_offset = 0;
     response_t * resp = NULL;
     uint32_t rem_size = 0;
+    res_buf_t * cur_buf = NULL;
     while (1) {
-        res_buf_t * cur_buf = (res_buf_t *)queue_pop(client->buf_q);
+        if (cur_buf != NULL) {
+            free(cur_buf->buf);
+            free(cur_buf);
+            cur_buf = NULL;
+        }
+        cur_buf = (res_buf_t *)queue_pop(client->buf_q);
         DBG_VERBOSE("%s: buf: %p len: %ld offset: %ld\n", __FUNCTION__, cur_buf->buf, cur_buf->len, cur_buf->offset);
         /* write a response split using fixed len */
         rem_size = cur_buf->len - cur_buf->offset + temp_len;
@@ -333,8 +348,9 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     assert(ret == 0);
 
     client = client_info_init();
+    assert(client != NULL);
     /*tcp init */
-    client->status = IN_PROGRESS;
+    client->progress = IN_PROGRESS;
     ret = tcp_client_init(addr, port, client);
     assert(ret == 0);
     /* create a io thread */
@@ -411,6 +427,7 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id
     DBG_FUNC_ENTER();
     assert((data != NULL) || (len != 0));
     assert((client != NULL) && (client->magic == HEADER_MAGIC));
+    assert(client->status != CLOSED);
     /* write the data on to the tcp client req */
     write_req_t * wr = write_req_init();
     assert(wr != NULL);
@@ -445,6 +462,7 @@ int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int 
     DBG_FUNC_ENTER();
     assert((data != NULL) || (nread != 0));
     assert((client != NULL) && (client->magic == HEADER_MAGIC));
+    assert(client->status != CLOSED);
     /* allocate response for this request */
     response_header_t * res_hdr = NULL;
     find_response_header(req_id, &res_hdr, &client->hash);
@@ -468,3 +486,17 @@ int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int 
     DBG_FUNC_EXIT();
     return nread;
 }
+
+int libuv_disconnect(handle_t handle) 
+{
+   /* if the status of client->status is closed, then just deinitilizes the
+    * client handle 
+    * send uv_close, once you receive the close cb and do the below */
+   /* close idle handler, so io loop returns, so no more callbacks */
+   /* put a dummy entry into buf_q and set flag to exit */
+   /* put a dummy entry into res_q and set flag to exit */
+   /* delete the entries into the queue */
+   /* deinit all handle related ds */
+   return 0;        
+}
+
