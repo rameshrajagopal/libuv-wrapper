@@ -14,8 +14,15 @@ typedef struct
     uint32_t cid;
     uv_thread_t tid;
     queue_t * req_q;
+    queue_t * res_q;
     uv_thread_t tids[MAX_NUM_WORKER_THREADS];
 }server_info_t;
+
+typedef struct 
+{
+   uv_work_t req;
+   server_info_t * server;
+}resp_work_t;
 
 typedef struct 
 {

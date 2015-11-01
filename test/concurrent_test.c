@@ -9,7 +9,7 @@ typedef struct
     handle_t handle;
 }test_task_t;
 
-#define MAX_NUM_THREADS  (2)
+#define MAX_NUM_THREADS  (10)
 #define MAX_NUM_REQUESTS (5)
 
 void client_test_task(void * arg)
@@ -32,13 +32,11 @@ void client_test_task(void * arg)
         ret = libuv_send(handle, (const uint8_t *)buf, sizeof(buf), &req_id);
         printf("test:%d write status: %d req_id: %d\n", th_num, ret, req_id);
         usleep(200 * 1000);
-    }
-#if 0
         ret = libuv_recv(handle, req_id, (uint8_t *)recv_buf, sizeof(recv_buf), &more);
         printf("********************test: %d read status: %d more: %d\n", th_num, ret, more);
         printf("%d: %.*s\n", th_num, ret, recv_buf);
         usleep(200 * 1000);
-#endif
+    }
 }
 
 int main(void)

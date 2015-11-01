@@ -1,1 +1,1 @@
-gcc -g -Wall -std=c11 -I../include/ -o conc_test -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include concurrent_test.c ../client/libuv-wrap.c ../common/utils.c ../common/request_response.c -luv
+gcc -g -Wall -std=c11 -I../include/ -o conc_test.elf -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include concurrent_test.c ../client/libuv-wrap.c ../common/utils.c ../common/request_response.c -luv

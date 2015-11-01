@@ -35,7 +35,6 @@ typedef struct {
     call_status_t progress;
 }write_req_t;
 
-
 typedef struct {
     int id;
     call_status_t progress;
@@ -58,6 +57,7 @@ typedef struct {
     uv_mutex_t  mutex;
     uv_cond_t   cond;
     uv_tcp_t    tcp_client;
+    uv_key_t    client_key;
     uv_loop_t   * loop;
     error_info_t error;
     uv_sem_t    sem;

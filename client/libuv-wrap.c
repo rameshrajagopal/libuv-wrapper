@@ -4,7 +4,6 @@
 #include <string.h>
 #include <assert.h>
 
-uv_key_t client_key;
 static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
 
 static void libuv_idle_cb(uv_idle_t * handle)
@@ -44,8 +43,13 @@ static void close_cb(uv_handle_t * handle)
 static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * buf)
 {
     DBG_FUNC_ENTER();
-    client_info_t * client = uv_key_get(&client_key);
+    /* FIXME replace with offset macro 
+     *  ((uint8_t *)stream - OFFSET(tcp_client)) + OFFSET(client_key)
+     */
+    uv_key_t * key = (uv_key_t *)((uint8_t *)stream + sizeof(uv_tcp_t));
+    client_info_t * client = uv_key_get(key);
 
+    assert(client != NULL);
     if (nread < 0) {
         DBG_ERR("error on read\n");
         free(buf->base);
@@ -92,7 +96,7 @@ static void client_io_loop(void * arg)
     DBG_FUNC_ENTER();
     client_info_t * client = arg;
     DBG_PRINT("%s: client: %p\n", __FUNCTION__, client);
-    uv_key_set(&client_key, arg);
+    uv_key_set(&client->client_key, arg);
     /* increment the counter to keep the loop alive */
     uv_run(client->loop, UV_RUN_DEFAULT);
     DBG_FUNC_EXIT();
@@ -143,6 +147,9 @@ client_info_t * client_info_init(void)
 
     client->hash = NULL;
     client->req_id = 0;
+
+    r = uv_key_create(&client->client_key);
+    assert(r == 0);
 
     DBG_FUNC_EXIT();
     return client;
@@ -297,8 +304,8 @@ void response_split_task(void * arg)
                     }
                     /* response is done, push it to the queue */
                     printf("GOT THE RESPONSE for ID: %u\n", resp->hdr.id);
-                    DBG_VERBOSE("Pushed response %p to Queue\n", resp);
                     queue_push(client->res_q, (void *)resp);
+                    DBG_VERBOSE("Pushed response %p to Queue\n", resp);
                     resp = NULL;
                     stage = HEADER_LEN_READ;
                     break;
@@ -344,8 +351,6 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
         return -1;
     }
 
-    ret = uv_key_create(&client_key);
-    assert(ret == 0);
 
     client = client_info_init();
     assert(client != NULL);
