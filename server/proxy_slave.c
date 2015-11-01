@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <uthash.h>
 
 static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
 
@@ -20,17 +19,12 @@ static void on_connect_cb(uv_connect_t * req, int status)
 
     DBG_FUNC_ENTER();
     DBG_PRINT("%s client: %p\n", __FUNCTION__, client);
-    client->error.cb_id = ON_CONNECT_CB;
-    client->error.err = status;
     if (status < 0) {
         DBG_ERR("listen err %s\n", uv_strerror(status));
     } else {
+        DBG_VERBOSE("connection is established\n");
         client->status = ACTIVE;
     }
-    /* notify the connect caller */
-    client->progress = DONE;
-    client->handle = (uv_stream_t *)client->req.handle;
-    uv_cond_signal(&client->cond);
     DBG_PRINT("%s: handle: %p %p\n", __FUNCTION__, client->handle, &client->tcp_client);
     DBG_FUNC_EXIT();
 }
@@ -126,7 +120,7 @@ static int tcp_client_init(const char * master_addr, int port, client_info_t * c
     return 0;
 }
 
-client_info_t * client_info_init(void)
+client_info_t * client_info_init(uint32_t slave_num, uv_handle_t * server)
 {
     int r;
     DBG_FUNC_ENTER();
@@ -148,28 +142,14 @@ client_info_t * client_info_init(void)
 
     client->hash = NULL;
     client->req_id = 0;
+    client->server = server;
+    client->slave_num = 0;
 
     r = uv_key_create(&client->client_key);
     assert(r == 0);
 
     DBG_FUNC_EXIT();
     return client;
-}
-
-static void wait_for_response(client_info_t * client)
-{
-    DBG_FUNC_ENTER();
-    uv_mutex_lock(&client->mutex);
-    while (client->progress == IN_PROGRESS) {
-        uv_cond_wait(&client->cond, &client->mutex);
-    }
-    uv_mutex_unlock(&client->mutex);
-    DBG_FUNC_EXIT();
-}
-
-static void clear_error(error_info_t * error)
-{
-    memset(error, '\0', sizeof(error_info_t));
 }
 
 static int libuv_idle_start(client_info_t * client)
@@ -342,21 +322,23 @@ void response_mapper_task(void * arg)
     DBG_FUNC_EXIT();
 }
 
-int libuv_connect(const char * addr, int port, handle_t * handle)
+int is_connection_active(client_info_t * client)
 {
-    client_info_t * client; 
+    uv_mutex_lock(&client->mutex);
+    int status = client->status;
+    uv_mutex_unlock(&client->mutex);
+    return status;
+}
+
+client_info_t * proxy_slave_init(const char * addr, int port, uint32_t slave_num, uv_handle_t * server)
+{
+    client_info_t * client = NULL; 
     int ret;
 
     DBG_FUNC_ENTER();
-    if ((addr == NULL) || (handle == NULL)) {
-        return -1;
-    }
-
-
-    client = client_info_init();
+    client = client_info_init(slave_num, server);
     assert(client != NULL);
-    /*tcp init */
-    client->progress = IN_PROGRESS;
+
     ret = tcp_client_init(addr, port, client);
     assert(ret == 0);
     /* create a io thread */
@@ -372,15 +354,8 @@ int libuv_connect(const char * addr, int port, handle_t * handle)
     ret = libuv_idle_start(client);
     assert(ret == 0);
 
-    wait_for_response(client);
-    ret = client->error.err;
-    if (ret == 0) {
-        DBG_PRINT("handle: %p\n", client);
-        *handle = (handle_t) client;
-    }
-    clear_error(&client->error);
     DBG_FUNC_EXIT();
-    return ret;
+    return client;
 }
 
 static write_req_t * write_req_init(void)

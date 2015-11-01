@@ -67,6 +67,8 @@ typedef struct {
     queue_t    * res_q;
     response_header_t * hash;
     uv_idle_t idle;
+    uv_handle_t * server;
+    uint32_t slave_num;
 }client_info_t;
 
 typedef void * handle_t;

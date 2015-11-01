@@ -489,11 +489,6 @@ int main(int argc, char * argv[])
   int r = uv_key_create(&server_key);
   assert(r == 0);
 
-#if 0
-  r = libuv_idle_start(server);
-  assert(r == 0);
-#endif
-
   r = tcp_server_init(server, argv[1], atoi(argv[2]), on_connection_cb);
   assert(r == 0);
 
