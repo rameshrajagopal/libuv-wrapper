@@ -8,7 +8,7 @@ typedef struct
     handle_t handle;
 }test_task_t;
 
-#define MAX_NUM_THREADS  (1)
+#define MAX_NUM_THREADS  (5)
 
 void client_test_task(void * arg)
 {

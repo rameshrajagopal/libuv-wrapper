@@ -7,6 +7,8 @@
 #define HEADER_SIZE_LEN   (4) /*fixed, should not be changed */
 #define HEADER_MAGIC      (0xDEADBEEF)
 
+typedef enum { ACTIVE = 1, CLOSED = 2} connect_status_t;
+
 typedef struct pkt_hdr_s
 {
     uint32_t magic;

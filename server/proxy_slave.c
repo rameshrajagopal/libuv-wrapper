@@ -1,10 +1,8 @@
 #include "libuv-wrap.h"
-
+#include "libuv-server.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-
-static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
 
 static void libuv_idle_cb(uv_idle_t * handle)
 {
@@ -24,6 +22,7 @@ static void on_connect_cb(uv_connect_t * req, int status)
     } else {
         DBG_VERBOSE("connection is established\n");
         client->status = ACTIVE;
+        client->handle = (uv_stream_t *)client->req.handle;
     }
     DBG_PRINT("%s: handle: %p %p\n", __FUNCTION__, client->handle, &client->tcp_client);
     DBG_FUNC_EXIT();
@@ -31,7 +30,14 @@ static void on_connect_cb(uv_connect_t * req, int status)
 
 static void close_cb(uv_handle_t * handle)
 {
+    uv_key_t * key = (uv_key_t *)((uint8_t *)handle + sizeof(uv_tcp_t));
+    client_info_t * client = uv_key_get(key);
     DBG_FUNC_ENTER();
+    uv_mutex_lock(&client->mutex);
+    client->status = CLOSED;
+    uv_mutex_unlock(&client->mutex);
+    /* need to check how to go about freeing this info 
+     */
     DBG_FUNC_EXIT();
 }
 
@@ -70,18 +76,13 @@ static void write_end_cb(uv_write_t * req, int status)
 {
     write_req_t * wr = (write_req_t *) req;
     DBG_FUNC_ENTER();
-    DBG_PRINT("%s write req: %p\n", __FUNCTION__, wr);
     if (status < 0) {
         DBG_ERR("write err %s\n", uv_strerror(status));
     }
-    uv_mutex_lock(&wr->mutex);
-    wr->status = status;
-    wr->progress = DONE;
-    uv_mutex_unlock(&wr->mutex);
-    uv_cond_signal(&wr->cond);
-    /* register the callback for reading */
     uv_read_start(wr->req.handle, alloc_buffer_cb, data_read_cb);
     /* free the memory */
+    DBG_ALLOC("FREE : wr : %p\n", wr);
+    free(wr);
     DBG_FUNC_EXIT();
 }
 
@@ -307,17 +308,16 @@ void response_mapper_task(void * arg)
     DBG_VERBOSE("%s: client: %p\n", __FUNCTION__, client);
     while (1) {
         response_t * resp = (response_t *)queue_pop(client->res_q);
-        DBG_VERBOSE("Pop response : %p\n", resp);
-        /* get the info from hash map using req_id */
-        response_header_t * resp_header = NULL;
-        find_response_header(resp->hdr.id, &resp_header, &client->hash);
-        assert(resp_header != NULL);
-        /* notify the waiter */
-        uv_mutex_lock(&resp_header->mutex);
-        resp_header->resp = resp;
-        resp_header->progress = DONE;
-        uv_mutex_unlock(&resp_header->mutex);
-        uv_cond_signal(&resp_header->cond);
+        /* take out the resp id */
+        int cnt = request_mapper_reply_dec((server_info_t *)client->server, resp->hdr.id);
+        DBG_VERBOSE("Pop response : %p num_replies: %d\n", resp, cnt);
+        if (cnt == 0) {
+            /* merge out, do whatever you want to do with the responses you 
+             * have got, merge or join or etc
+             */
+            queue_push(((server_info_t *)((client_info_t *)client)->server)->res_q, resp);
+            schedule_response_route((server_info_t *)((client_info_t *)client)->server);
+        }
     }
     DBG_FUNC_EXIT();
 }
@@ -325,7 +325,7 @@ void response_mapper_task(void * arg)
 int is_connection_active(client_info_t * client)
 {
     uv_mutex_lock(&client->mutex);
-    int status = client->status;
+    int status = (client->status == ACTIVE) ? 1 : 0;
     uv_mutex_unlock(&client->mutex);
     return status;
 }
@@ -358,114 +358,30 @@ client_info_t * proxy_slave_init(const char * addr, int port, uint32_t slave_num
     return client;
 }
 
-static write_req_t * write_req_init(void)
+static inline write_req_t * write_req_init(void)
 {
     write_req_t * wr = malloc(sizeof(write_req_t));
     assert(wr != NULL);
-
-    int r = uv_mutex_init(&wr->mutex);
-    assert(r == 0);
-
-    wr->status = 0;
-    wr->progress = IN_PROGRESS;
-
-    r = uv_cond_init(&wr->cond);
-    assert(r == 0);
-
     return wr;
 }
 
-static void add_response_header(int id, response_header_t * res, response_header_t ** hash) 
+int proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len)
 {
-    HASH_ADD_INT(*hash, id, res);
-}
-static void find_response_header(int id, response_header_t **res, response_header_t ** hash)
-{
-    HASH_FIND_INT(*hash, &id, *res);
-}
-
-static response_header_t * response_init(void)
-{
-    response_header_t * res = malloc(sizeof(response_header_t));
-    assert(res != NULL);
-
-    int r = uv_mutex_init(&res->mutex);
-    assert(r == 0);
-
-    r = uv_cond_init(&res->cond);
-    assert(r == 0);
-
-    res->progress = IN_PROGRESS;
-    res->id = 0;
-    res->resp = NULL;
-    return res;
-}
-
-int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id)
-{
-    client_info_t * client = handle;
-
     DBG_FUNC_ENTER();
-    assert((data != NULL) || (len != 0));
-    assert((client != NULL) && (client->magic == HEADER_MAGIC));
-    assert(client->status != CLOSED);
+    if (client->status == CLOSED) {
+        DBG_ERR("connection is closed");
+        return -1;
+    }
     /* write the data on to the tcp client req */
     write_req_t * wr = write_req_init();
     assert(wr != NULL);
-
-    DBG_VERBOSE("%s: wr: %p\n", __FUNCTION__, wr);
-    /* allocate response for this request */
-    response_header_t * res = response_init();
-    assert(res != NULL);
+    DBG_ALLOC("ALLOC wr: %p\n", wr);
 
     uv_mutex_lock(&client->mutex);
-    DBG_VERBOSE("%s: client: %p handle: %p\n", __FUNCTION__, client->handle, &client->tcp_client);
-    res->id = ++client->req_id;
-    *req_id = res->id;
-    uv_buf_t buf = create_request(data, len, res->id);
-    add_response_header(res->id, res, &client->hash);
+    uv_buf_t buf = uv_buf_init((char *)req, len);
     int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
     uv_mutex_unlock(&client->mutex);
-    /* wait for response */
-    uv_mutex_lock(&wr->mutex);
-    while (wr->progress == IN_PROGRESS) {
-        uv_cond_wait(&wr->cond, &wr->mutex);
-    }
-    ret = wr->status;
-    DBG_FUNC_EXIT();
     return ret;
-}
-
-int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int * more)
-{
-    client_info_t * client = handle;
-
-    DBG_FUNC_ENTER();
-    assert((data != NULL) || (nread != 0));
-    assert((client != NULL) && (client->magic == HEADER_MAGIC));
-    assert(client->status != CLOSED);
-    /* allocate response for this request */
-    response_header_t * res_hdr = NULL;
-    find_response_header(req_id, &res_hdr, &client->hash);
-    assert(res_hdr != NULL);
-
-    DBG_VERBOSE("%s: waiting for response\n", __FUNCTION__);
-    uv_mutex_lock(&res_hdr->mutex);
-    while (res_hdr->progress == IN_PROGRESS) {
-        uv_cond_wait(&res_hdr->cond, &res_hdr->mutex);
-    }
-    uv_mutex_unlock(&res_hdr->mutex);
-    if (res_hdr->resp->hdr.len > nread) {
-        memcpy(data, res_hdr->resp->buf, nread);
-        *more = 1;
-    } else {
-        nread = res_hdr->resp->hdr.len;
-        memcpy(data, res_hdr->resp->buf, nread);
-        *more = 0;
-        /* delete the response from hash table */
-    }
-    DBG_FUNC_EXIT();
-    return nread;
 }
 
 int libuv_disconnect(handle_t handle) 

@@ -29,6 +29,7 @@ typedef struct {
 typedef struct {
     uv_write_t req;
     uv_buf_t   buf;
+    uint32_t server_req_id;
     uv_mutex_t mutex;
     uv_cond_t cond;
     int status;
@@ -44,7 +45,6 @@ typedef struct {
     UT_hash_handle hh;
 }response_header_t;
 
-typedef enum { ACTIVE = 1, CLOSED = 2} connect_status_t;
 
 typedef struct {
     uv_connect_t req;

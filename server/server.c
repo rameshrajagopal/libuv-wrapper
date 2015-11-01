@@ -21,8 +21,12 @@ slave_conf_t slaves_conf[] = {
 uv_key_t server_key;
 typedef void (*on_connection_callback)(uv_stream_t *, int);
 static void after_write_cb(uv_write_t * req, int status); 
+static void request_mapper_get_info(server_info_t * server, uint32_t id, uint32_t * creq_num, uv_handle_t ** client);
 
-static void response_send(request_t * req)
+/*
+ * create another hashing b/w connection info to active or inactive
+ */
+static void response_send(server_info_t * server, response_t * res)
 {
   DBG_FUNC_ENTER();
 
@@ -30,9 +34,15 @@ static void response_send(request_t * req)
   assert(wr != NULL);
   DBG_ALLOC("ALLOC: wr %p\n", wr);
 
-  wr->buf = create_response(req->buf, req->hdr.len, req->hdr.id);
+  connection_info_t * cinfo = NULL;
+  uint32_t client_req_id = 0;
 
-  int r = uv_write(&wr->req, (uv_stream_t *)&(((connection_info_t *)req->cinfo)->client), &wr->buf, 1, after_write_cb);
+  wr->server_req_id = res->hdr.id;
+  request_mapper_get_info(server, res->hdr.id, &client_req_id, (uv_handle_t **)&cinfo);
+  assert(cinfo != NULL);
+  wr->buf = create_response(res->buf, res->hdr.len, client_req_id);
+
+  int r = uv_write(&wr->req, (uv_stream_t *)&cinfo->client , &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
   assert(r == 0);
   DBG_FUNC_EXIT();
@@ -49,18 +59,18 @@ static void response_send_task(uv_work_t * work)
     server_info_t * server  = resp_work->server;
 
     while (!is_empty(server->res_q)) {
-        request_t * req = (request_t *) queue_pop(server->res_q);
+        response_t * res = (response_t *) queue_pop(server->res_q);
         /* find out cid still available in the hash table
          * if it is there proceed to send response, otherwise, just 
          * leave it 
          */
         if (is_connection_exist()) {
-            response_send(req);
+            response_send(server, res);
         }
         /* free the request here */
-        DBG_ALLOC("FREE: req->buf: %p req %p\n", req->buf, req);
-        free(req->buf);
-        free(req);
+        DBG_ALLOC("FREE: req->buf: %p req %p\n", res->buf, res);
+        free(res->buf);
+        free(res);
     }
 }
 
@@ -76,6 +86,7 @@ static void on_close_cb(uv_handle_t* handle)
 {
   connection_info_t * cinfo = (connection_info_t *) handle;
   DBG_FUNC_ENTER();
+  cinfo->status = CLOSED;
   queue_deinit(cinfo->buf_q);
   free(handle);
   DBG_FUNC_EXIT();
@@ -115,13 +126,63 @@ static void after_write_cb(uv_write_t * req, int status)
   uv_close((uv_handle_t*)req->handle, on_close_cb);
 }
 
-uint32_t add_client_request(server_info_t * server, uint32_t client_req_id)
+static inline void add_request_mapper(uint32_t id, request_mapper_t * req, request_mapper_t ** hash)
 {
+    HASH_ADD_INT(*hash, id, req);
+}
+static void find_request_mapper(uint32_t id, request_mapper_t ** req, request_mapper_t ** hash) 
+{
+    HASH_FIND_INT(*hash, &id, *req);
+}
+
+static void request_mapper_get_info(server_info_t * server, uint32_t id, uint32_t * creq_num, uv_handle_t ** client)
+{
+    request_mapper_t * req_map = NULL;
+    
     uv_mutex_lock(&server->mutex);
-    int ret = ++server->client_req_num; /* unique number for server */
+    find_request_mapper(id, &req_map, &server->req_hash);
+    assert(req_map != NULL);
+    *creq_num = req_map->client_req_id;
+    *client   = req_map->client;
+    uv_mutex_unlock(&server->mutex);
+}
+
+int request_mapper_reply_dec(server_info_t * server, uint32_t req_id)
+{
+    request_mapper_t * req_map = NULL;
+    
+    uv_mutex_lock(&server->mutex);
+    find_request_mapper(req_id, &req_map, &server->req_hash);
+    assert(req_map != NULL);
+    int cnt = --req_map->num_replies;
+    uv_mutex_unlock(&server->mutex);
+    return cnt;
+}
+
+static void update_request_mapper(server_info_t * server, uint32_t req_id, int num_requests)
+{
+    request_mapper_t * req_map = NULL;
+    
+    find_request_mapper(req_id, &req_map, &server->req_hash);
+    assert(req_map != NULL);
+    req_map->num_replies = num_requests;
+}
+
+uint32_t add_client_request(server_info_t * server, uv_handle_t * client, uint32_t client_req_id)
+{
+    request_mapper_t * req_map = malloc(sizeof(request_mapper_t));
+    assert(req_map != NULL);
+
+    uv_mutex_lock(&server->mutex);
+    req_map->id = ++server->client_req_id; /* unique number for server */
+    uint32_t ret = req_map->id;
     /* create a mapping here b/w client_req_num => client_req_id, ids to
      * slaves
      */
+    req_map->client_req_id = client_req_id;
+    req_map->num_replies = 0;
+    req_map->client = client;
+    add_request_mapper(ret, req_map, &server->req_hash);
     uv_mutex_unlock(&server->mutex);
     return ret;
 }
@@ -256,7 +317,7 @@ void request_split_task(uv_work_t * work_req)
                     /* request is done, push it to the queue */
                     printf("GOT THE RESPONSE for ID: %u\n", req->hdr.id);
                     DBG_VERBOSE("Pushed request %p to Queue\n", req);
-                    int client_req_id = add_client_request((server_info_t *)(cinfo->client.data), req->hdr.id);
+                    int client_req_id = add_client_request((server_info_t *)(cinfo->client.data), (uv_handle_t *) cinfo, req->hdr.id);
                     req->hdr.id = client_req_id;
                     req->cinfo = (uv_handle_t *)cinfo;
                     queue_push(((server_info_t *)(cinfo->client.data))->req_q, (void *)req);
@@ -388,6 +449,7 @@ static void on_connection_cb(uv_stream_t * stream, int status)
   /* cid */
   uv_mutex_lock(&server->mutex); 
   cinfo->cid = ++server->cid;
+  cinfo->status = ACTIVE;
   uv_mutex_unlock(&server->mutex);
   DBG_INFO("%s: cinfo: %p client: %p id: %u\n", __FUNCTION__, cinfo, &cinfo->client, cinfo->cid);
   r = uv_read_start((uv_stream_t*)&cinfo->client, alloc_cb, after_read_cb);
@@ -458,17 +520,20 @@ static void request_worker_task(void * arg)
         DBG_VERBOSE("Got request: %p req->hdr.len: %u buf: %p\n", req, req->hdr.len, req->buf);
         /* do the actual work */
         uv_buf_t buf = create_request(req->buf, req->hdr.len, req->hdr.id);
+        int num_requests = 0; 
         uv_mutex_lock(&server->mutex);
         for (uint32_t num = 0; num < server->num_slaves; ++num) {
             proxy_slave_t * slave = NULL;
             find_proxy_slave(num, &slave, &server->slave_hash); 
             assert(slave != NULL);
             DBG_VERBOSE("sening to slave: %d CONNECTION STATUS: %d\n", num, is_connection_active(slave->client));
-#if 0
-            r = libuv_send_async(server->slaves[num], buf.base, buf.len);
-            assert(r == 0);
-#endif
+            if (is_connection_active(slave->client)) {
+                int r = proxy_slave_send(slave->client, (const uint8_t *)buf.base, buf.len);
+                assert(r == 0);
+                ++num_requests;
+            }
         }
+        update_request_mapper(server, req->hdr.id, num_requests);
         uv_mutex_unlock(&server->mutex);
     }
     DBG_FUNC_EXIT();

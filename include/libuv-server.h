@@ -15,6 +15,15 @@ typedef struct
 
 typedef struct 
 {
+    uint32_t id;
+    uint32_t client_req_id;
+    uv_handle_t * client;
+    int num_replies;
+    UT_hash_handle hh;
+}request_mapper_t;
+
+typedef struct 
+{
     uv_tcp_t  tcp_server;
     uv_mutex_t mutex;
     uv_cond_t  cond;
@@ -23,9 +32,10 @@ typedef struct
     queue_t * req_q;
     queue_t * res_q;
     uv_thread_t tids[MAX_NUM_WORKER_THREADS];
-    uint32_t client_req_num;
+    uint32_t client_req_id;
     int num_slaves;
     proxy_slave_t * slave_hash;
+    request_mapper_t * req_hash;
 }server_info_t;
 
 typedef struct 
@@ -39,6 +49,7 @@ typedef struct
     uv_tcp_t client;
     uint32_t cid;
     queue_t * buf_q;
+    connect_status_t status;
 }connection_info_t;
 
 typedef struct 
@@ -50,5 +61,8 @@ typedef struct
 #define DO_WORK()  usleep(100 * 1000)
 int is_connection_active(client_info_t * client);
 client_info_t * proxy_slave_init(const char * addr, int port, uint32_t slave_num, uv_handle_t * server);
+int request_mapper_reply_dec(server_info_t * server, uint32_t req_id);
+int proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len);
+void schedule_response_route(server_info_t * server);
 
 #endif /*_LIBUV_SERVER_H_INCLUDED_ */
