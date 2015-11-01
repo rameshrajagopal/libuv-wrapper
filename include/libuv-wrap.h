@@ -10,12 +10,7 @@
 
 #define HEADER_MAGIC (0xDEADBEEF)
 
-#define DBG_ERR(fmt...) printf(fmt)
-#define DBG_INFO(fmt...) printf(fmt)
-#define DBG_PRINT(fmt...) printf(fmt)
-#define DBG_FUNC_ENTER()  printf("Enter %s:%d\n", __FUNCTION__, __LINE__)
-#define DBG_FUNC_EXIT()  printf("Exit %s:%d\n", __FUNCTION__, __LINE__)
-#define DBG_VERBOSE(fmt...) printf(fmt)
+//#define DBG_ALLOC(fmt...) printf(fmt)
 
 typedef enum {
     ON_CONNECT_CB = 1,
@@ -40,11 +35,6 @@ typedef struct {
     call_status_t progress;
 }write_req_t;
 
-typedef struct {
-    uint32_t  header_len;
-    pkt_hdr_t hdr;
-    uint8_t * buf;
-}response_t;
 
 typedef struct {
     int id;
@@ -54,12 +44,6 @@ typedef struct {
     response_t * resp;
     UT_hash_handle hh;
 }response_header_t;
-
-typedef struct {
-    char * buf;
-    ssize_t len;
-    ssize_t offset;
-}res_buf_t;
 
 typedef enum { ACTIVE = 1, CLOSED = 2} connect_status_t;
 

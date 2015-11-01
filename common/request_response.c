@@ -67,5 +67,52 @@ uv_buf_t  create_request(const uint8_t * req, uint32_t len, uint32_t id)
     return buf;
 }
 
+uv_buf_t  create_response(const uint8_t * res, uint32_t len, uint32_t id)
+{
+    pkt_hdr_t hdr = {0};
+    uint32_t header_len = sizeof(hdr);
+    uint32_t total_len =  HEADER_SIZE_LEN + header_len + len;
+    uint32_t offset = 0;
 
+    uv_buf_t buf;
+    buf.base = malloc(total_len * sizeof(char));
+    assert(buf.base != NULL);
+    buf.len  = total_len;
+    memcpy(buf.base, &header_len, HEADER_SIZE_LEN);
+    offset += HEADER_SIZE_LEN;
+    hdr.magic = HEADER_MAGIC; 
+    hdr.len   = len;
+    hdr.id    = id;
+    hdr.future = 0;
+    printf("RES HEADER: %x %x %x\n", hdr.magic, hdr.len, hdr.id);
+    write_pkt_hdr(&hdr, (uint8_t *)buf.base + offset);
+    offset += sizeof(hdr);
+    memcpy(buf.base + offset, res, len);
+    return buf;
+}
+
+txn_buf_t * txn_buf_init(char * base, ssize_t nread)
+{
+    txn_buf_t * txn = malloc(sizeof(txn_buf_t));
+    assert(txn != NULL);
+    txn->buf = base;
+    txn->len = nread;
+    txn->offset = 0;
+    return txn;
+}
+
+req_buf_t * req_buf_init(char * base, ssize_t nread)
+{
+    DBG_FUNC_ENTER();
+    req_buf_t * buf = malloc(sizeof(req_buf_t));
+    assert(buf != NULL);
+    buf->buf = base;
+    buf->len = nread;
+    buf->offset = 0;
+    buf->req = NULL;
+    buf->stage = INVALID_STAGE;
+    DBG_ALLOC("ALLOC req_buf: %p\n", buf);
+    DBG_FUNC_EXIT();
+    return buf;
+}
 

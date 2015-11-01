@@ -1,6 +1,7 @@
 #include "libuv-wrap.h"
 #include <assert.h>
 #include <stdio.h>
+#include <unistd.h>
 
 typedef struct 
 {
@@ -8,7 +9,8 @@ typedef struct
     handle_t handle;
 }test_task_t;
 
-#define MAX_NUM_THREADS  (5)
+#define MAX_NUM_THREADS  (2)
+#define MAX_NUM_REQUESTS (5)
 
 void client_test_task(void * arg)
 {
@@ -25,12 +27,18 @@ void client_test_task(void * arg)
     if (ret < 0) {
         return;
     }
-    memset(buf, 'a' + th_num, sizeof(buf));
-    ret = libuv_send(handle, (const uint8_t *)buf, sizeof(buf), &req_id);
-    printf("test:%d write status: %d req_id: %d\n", th_num, ret, req_id);
-    ret = libuv_recv(handle, req_id, (uint8_t *)recv_buf, sizeof(recv_buf), &more);
-    printf("********************test: %d read status: %d more: %d\n", th_num, ret, more);
-    printf("%d: %.*s\n", th_num, ret, recv_buf);
+    for (int i = 0; i < MAX_NUM_REQUESTS; ++i) {
+        memset(buf, 'a' + th_num, sizeof(buf));
+        ret = libuv_send(handle, (const uint8_t *)buf, sizeof(buf), &req_id);
+        printf("test:%d write status: %d req_id: %d\n", th_num, ret, req_id);
+        usleep(200 * 1000);
+    }
+#if 0
+        ret = libuv_recv(handle, req_id, (uint8_t *)recv_buf, sizeof(recv_buf), &more);
+        printf("********************test: %d read status: %d more: %d\n", th_num, ret, more);
+        printf("%d: %.*s\n", th_num, ret, recv_buf);
+        usleep(200 * 1000);
+#endif
 }
 
 int main(void)

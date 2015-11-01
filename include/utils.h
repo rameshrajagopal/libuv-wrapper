@@ -47,6 +47,7 @@ void queue_push(queue_t * q, const void * data);
 const void * queue_pop(queue_t * q);
 void queue_push_front(queue_t * q, const void * data);
 bool is_empty(queue_t * q);
+void queue_deinit(queue_t * q);
 
 typedef struct worker_data_s
 {

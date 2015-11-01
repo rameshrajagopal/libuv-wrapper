@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <uv.h>
@@ -24,6 +25,7 @@ bool is_empty(queue_t * q)
 
 void queue_push_front(queue_t * q, const void * data)
 {
+    printf("%s:\n", __FUNCTION__);
     queue_data_t * dnode = malloc(sizeof(queue_data_t));
     assert(dnode != NULL);
     dnode->data = data;
@@ -75,4 +77,7 @@ const void * queue_pop(queue_t * q)
     return ret;
 }
 
-
+void queue_deinit(queue_t * q)
+{
+    printf("queue_deinit implement it\n");
+}

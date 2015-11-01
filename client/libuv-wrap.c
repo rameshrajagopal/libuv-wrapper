@@ -53,11 +53,8 @@ static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * b
         return;
     }
     DBG_VERBOSE("stream: %p nread: %ld buf: %p\n", stream, nread, buf);
-    res_buf_t * res = malloc(sizeof(res_buf_t));
+    txn_buf_t * res = txn_buf_init(buf->base, nread);
     assert(res != NULL);
-    res->buf = buf->base;
-    res->len = nread;
-    res->offset = 0;
     queue_push(client->buf_q, (void *)res);
     DBG_FUNC_EXIT();
 }
@@ -190,14 +187,14 @@ void response_split_task(void * arg)
     uint32_t payload_offset = 0;
     response_t * resp = NULL;
     uint32_t rem_size = 0;
-    res_buf_t * cur_buf = NULL;
+    txn_buf_t * cur_buf = NULL;
     while (1) {
         if (cur_buf != NULL) {
             free(cur_buf->buf);
             free(cur_buf);
             cur_buf = NULL;
         }
-        cur_buf = (res_buf_t *)queue_pop(client->buf_q);
+        cur_buf = (txn_buf_t *)queue_pop(client->buf_q);
         DBG_VERBOSE("%s: buf: %p len: %ld offset: %ld\n", __FUNCTION__, cur_buf->buf, cur_buf->len, cur_buf->offset);
         /* write a response split using fixed len */
         rem_size = cur_buf->len - cur_buf->offset + temp_len;
@@ -305,6 +302,9 @@ void response_split_task(void * arg)
                     resp = NULL;
                     stage = HEADER_LEN_READ;
                     break;
+                default:
+                    DBG_ERR("Invalid stage\n");
+                    assert(0);
             }
         }
     }
