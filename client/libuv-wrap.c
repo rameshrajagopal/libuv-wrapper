@@ -53,7 +53,7 @@ static void data_read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t * b
 
     assert(client != NULL);
     if (nread < 0) {
-        DBG_ERR("error on read\n");
+        DBG_VERBOSE("error on read\n");
         free(buf->base);
         uv_close((uv_handle_t *)stream, close_cb);
         return;

@@ -22,6 +22,7 @@ static void response_send(request_t * req)
 
   wr->buf = create_response(req->buf, req->hdr.len, req->hdr.id);
 
+  DBG_INFO("res_id: %d\n", req->hdr.id);
   int r = uv_write(&wr->req, (uv_stream_t *)&(((connection_info_t *)req->cinfo)->client), &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
   //assert(r == 0);
@@ -114,7 +115,7 @@ static void after_write_cb(uv_write_t * req, int status)
   DBG_ALLOC("FREE: wr: %p\n", wr);
   free(wr);
   if (status == 0) {
-    DBG_INFO("status: %d\n", status);
+    DBG_VERBOSE("status: %d\n", status);
     return;
   }
   DBG_ERR("uv_write : %s\n", uv_strerror(status));
@@ -164,7 +165,7 @@ void request_split_task(uv_work_t * work_req)
                         uint32_t hdr_len = 0;
                         memcpy((uint8_t *)&hdr_len, temp, temp_len);
                         memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN - temp_len);
-                        printf("HEADER length: %u\n", hdr_len);
+                        DBG_VERBOSE("HEADER length: %u\n", hdr_len);
                         req->header_len = hdr_len;
                         temp_len = 0;
                         rem_size -= HEADER_SIZE_LEN;
@@ -175,14 +176,14 @@ void request_split_task(uv_work_t * work_req)
                     {
                         memcpy((uint8_t *)&req->hdr, temp, temp_len);
                         memcpy(((uint8_t *)&req->hdr) + temp_len, cur_buf->buf + cur_buf->offset, req->header_len - temp_len);
-                        printf("REQUEST id: %u\n", req->hdr.id);
+                        DBG_VERBOSE("REQUEST id: %u\n", req->hdr.id);
                         temp_len = 0;
                         rem_size -= req->header_len;
                         stage = PAYLOAD_READ;
                         break;
                     }
                     default:
-                        printf("INVALID case needs to be find out");
+                        DBG_ERR("INVALID case needs to be find out");
                         assert(0);
                         break;
                 }
@@ -205,7 +206,7 @@ void request_split_task(uv_work_t * work_req)
                         read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN, &req->header_len);
                         cur_buf->offset += HEADER_SIZE_LEN;
                         rem_size -= HEADER_SIZE_LEN;
-                        printf("HEADER: %u\n", req->header_len);
+                        DBG_VERBOSE("HEADER: %u\n", req->header_len);
                         stage = HEADER_READ;
                     }
                     break;
@@ -217,7 +218,7 @@ void request_split_task(uv_work_t * work_req)
                         rem_size = 0;
                     } else {
                         read_pkt_hdr((uint8_t *)cur_buf->buf + cur_buf->offset, req->header_len, &req->hdr);
-                        printf("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
+                        DBG_VERBOSE("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
                         rem_size -= req->header_len;
                         cur_buf->offset += req->header_len;
                         stage = PAYLOAD_READ;
@@ -254,8 +255,7 @@ void request_split_task(uv_work_t * work_req)
                         }
                     }
                     /* request is done, push it to the queue */
-                    printf("GOT THE RESPONSE for ID: %u\n", req->hdr.id);
-                    DBG_VERBOSE("Pushed request %p to Queue\n", req);
+                    DBG_INFO("req_id: %u\n", req->hdr.id);
                     req->cinfo = (uv_handle_t *)cinfo;
                     queue_push(((server_info_t *)(cinfo->client.data))->req_q, (void *)req);
                     req = NULL;
