@@ -42,6 +42,7 @@ static void response_send(server_info_t * server, response_t * res)
   assert(cinfo != NULL);
   wr->buf = create_response(res->buf, res->hdr.len, client_req_id);
 
+  DBG_INFO("response to client\n");
   int r = uv_write(&wr->req, (uv_stream_t *)&cinfo->client , &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
   assert(r == 0);
@@ -53,10 +54,9 @@ static int is_connection_exist()
     return 1;
 }
 
-static void response_send_task(uv_work_t * work)
+static void resp_async_cb(uv_async_t * async)
 {
-    resp_work_t * resp_work = (resp_work_t *) work->data;
-    server_info_t * server  = resp_work->server;
+    server_info_t  * server = (server_info_t *)async->data;
 
     while (!is_empty(server->res_q)) {
         response_t * res = (response_t *) queue_pop(server->res_q);
@@ -68,18 +68,10 @@ static void response_send_task(uv_work_t * work)
             response_send(server, res);
         }
         /* free the request here */
-        DBG_ALLOC("FREE: req->buf: %p req %p\n", res->buf, res);
+        DBG_ALLOC("FREE: req->buf: %p req %p\n", req->buf, req);
         free(res->buf);
         free(res);
     }
-}
-
-static void response_send_cleanup(uv_work_t * resp_work, int status)
-{
-    DBG_FUNC_ENTER();
-    DBG_ALLOC("FREE resp_work: %p status: %d\n", resp_work, status);
-    free(resp_work);
-    DBG_FUNC_EXIT();
 }
 
 static void on_close_cb(uv_handle_t* handle)
@@ -489,15 +481,11 @@ void server_io_loop(void * arg)
     DBG_FUNC_EXIT();
 }
 
-void schedule_response_route(server_info_t * server)
+void wakeup_response_async_cb(server_info_t * server)
 {
-    resp_work_t * resp_work = malloc(sizeof(resp_work_t));
-    assert(resp_work != NULL);
-    DBG_ALLOC("ALLOC resp_work: %p\n", resp_work);
-
-    resp_work->req.data = (void *) resp_work;
-    resp_work->server = server;
-    uv_queue_work(uv_default_loop(), &resp_work->req, response_send_task, response_send_cleanup);
+    DBG_FUNC_ENTER(); 
+    server->resp_async.data = (void *) server; 
+    uv_async_send(&server->resp_async);
     DBG_FUNC_EXIT();
 }
 
@@ -529,8 +517,7 @@ static void request_worker_task(void * arg)
             assert(slave != NULL);
             DBG_VERBOSE("sening to slave: %d CONNECTION STATUS: %d\n", num, is_connection_active(slave->client));
             if (is_connection_active(slave->client)) {
-                int r = proxy_slave_send(slave->client, (const uint8_t *)buf.base, buf.len);
-                assert(r == 0);
+                proxy_slave_send(slave->client, (const uint8_t *)buf.base, buf.len);
                 ++num_requests;
             }
         }
@@ -556,6 +543,9 @@ server_info_t * server_info_init(void)
 
     server->res_q = queue_init();
     assert(server->res_q != NULL);
+
+    r = uv_async_init(uv_default_loop(), &server->resp_async, resp_async_cb);
+    assert(r == 0);
 
     for (int num = 0; num < MAX_NUM_WORKER_THREADS; ++num) {
         uv_thread_create(&server->tids[num], request_worker_task, (void *)server);  

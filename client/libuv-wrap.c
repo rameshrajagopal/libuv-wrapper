@@ -6,6 +6,7 @@
 #include <uthash.h>
 
 static void find_response_header(int id, response_header_t **res, response_header_t ** hash);
+static write_req_t * write_req_init(void);
 
 static void libuv_idle_cb(uv_idle_t * handle)
 {
@@ -80,11 +81,13 @@ static void write_end_cb(uv_write_t * req, int status)
     if (status < 0) {
         DBG_ERR("write err %s\n", uv_strerror(status));
     }
+#if 0
     uv_mutex_lock(&wr->mutex);
     wr->status = status;
     wr->progress = DONE;
     uv_mutex_unlock(&wr->mutex);
     uv_cond_signal(&wr->cond);
+#endif
     /* register the callback for reading */
     uv_read_start(wr->req.handle, alloc_buffer_cb, data_read_cb);
     /* free the memory */
@@ -103,6 +106,27 @@ static void client_io_loop(void * arg)
     DBG_FUNC_EXIT();
 }
 
+static void req_async_send_cb(uv_async_t * async)
+{
+    client_info_t * client = (client_info_t *) async->data;
+    while (!is_empty(client->req_buf_q)) {
+        uv_buf_t * buf = (uv_buf_t *) queue_pop(client->req_buf_q);
+        if (client->status != CLOSED) {
+            /* write the data on to the tcp client req */
+            write_req_t * wr = write_req_init();
+            assert(wr != NULL);
+            DBG_ALLOC("ALLOC wr: %p\n", wr);
+            wr->buf.base = buf->base;
+            wr->buf.len  = buf->len;
+
+            int ret = uv_write(&wr->req, client->handle, &wr->buf, 1, write_end_cb);
+            assert(ret == 0);
+        }
+        DBG_ALLOC("FREE req_buf: %p\n", buf);
+        free(buf);
+    }
+}
+
 static int tcp_client_init(const char * master_addr, int port, client_info_t * client)
 {
     struct sockaddr_in addr;
@@ -114,6 +138,9 @@ static int tcp_client_init(const char * master_addr, int port, client_info_t * c
     client->loop = malloc(sizeof(uv_loop_t));
     assert(client->loop != NULL);
     uv_loop_init(client->loop);
+
+    r = uv_async_init(client->loop, &client->req_async, req_async_send_cb);
+    assert(r == 0);
     /* connect to the server */
     uv_tcp_init(client->loop, &client->tcp_client);
     r = uv_tcp_connect(&client->req, &client->tcp_client, 
@@ -145,6 +172,9 @@ client_info_t * client_info_init(void)
 
     client->res_q = queue_init();
     assert(client->res_q != NULL);
+
+    client->req_buf_q = queue_init();
+    assert(client->req_buf_q != NULL);
 
     client->hash = NULL;
     client->req_id = 0;
@@ -426,6 +456,28 @@ static response_header_t * response_init(void)
     return res;
 }
 
+static void client_send(client_info_t * client, const uint8_t * req, uint32_t len)
+{
+    DBG_FUNC_ENTER();
+    uv_buf_t * buf = malloc(sizeof(uv_buf_t));
+    assert(buf != NULL);
+    buf->base = (char *)req;
+    buf->len  = len;
+    queue_push(client->req_buf_q, (void *)buf);
+    /* wake up req async send callback */
+    client->req_async.data = (void *)client;
+    uv_async_send(&client->req_async);
+    /* wait for response */
+#if 0
+    uv_mutex_lock(&wr->mutex);
+    while (wr->progress == IN_PROGRESS) {
+        uv_cond_wait(&wr->cond, &wr->mutex);
+    }
+    ret = wr->status;
+#endif
+    DBG_FUNC_EXIT();
+}
+
 int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id)
 {
     client_info_t * client = handle;
@@ -434,10 +486,6 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id
     assert((data != NULL) || (len != 0));
     assert((client != NULL) && (client->magic == HEADER_MAGIC));
     assert(client->status != CLOSED);
-    /* write the data on to the tcp client req */
-    write_req_t * wr = write_req_init();
-    assert(wr != NULL);
-
     DBG_VERBOSE("%s: wr: %p\n", __FUNCTION__, wr);
     /* allocate response for this request */
     response_header_t * res = response_init();
@@ -449,16 +497,10 @@ int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id
     *req_id = res->id;
     uv_buf_t buf = create_request(data, len, res->id);
     add_response_header(res->id, res, &client->hash);
-    int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
+    client_send(client, (const uint8_t *)buf.base, (uint32_t)buf.len);
     uv_mutex_unlock(&client->mutex);
-    /* wait for response */
-    uv_mutex_lock(&wr->mutex);
-    while (wr->progress == IN_PROGRESS) {
-        uv_cond_wait(&wr->cond, &wr->mutex);
-    }
-    ret = wr->status;
     DBG_FUNC_EXIT();
-    return ret;
+    return 0;
 }
 
 int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int * more)

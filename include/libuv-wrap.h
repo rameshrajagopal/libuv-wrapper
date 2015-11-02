@@ -65,10 +65,12 @@ typedef struct {
     int req_id;
     queue_t    * buf_q;
     queue_t    * res_q;
+    queue_t    * req_buf_q;
     response_header_t * hash;
     uv_idle_t idle;
     uv_handle_t * server;
     uint32_t slave_num;
+    uv_async_t req_async;
 }client_info_t;
 
 typedef void * handle_t;

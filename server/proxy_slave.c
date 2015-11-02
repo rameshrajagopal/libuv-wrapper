@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
+static void req_async_send_cb(uv_async_t * async);
 static void libuv_idle_cb(uv_idle_t * handle)
 {
     /* do nothing here, if possible, we can include some general check like
@@ -109,6 +110,9 @@ static int tcp_client_init(const char * master_addr, int port, client_info_t * c
     client->loop = malloc(sizeof(uv_loop_t));
     assert(client->loop != NULL);
     uv_loop_init(client->loop);
+    /* register async cb */
+    r = uv_async_init(client->loop, &client->req_async, req_async_send_cb);
+    assert(r == 0);
     /* connect to the server */
     uv_tcp_init(client->loop, &client->tcp_client);
     r = uv_tcp_connect(&client->req, &client->tcp_client, 
@@ -140,6 +144,10 @@ client_info_t * client_info_init(uint32_t slave_num, uv_handle_t * server)
 
     client->res_q = queue_init();
     assert(client->res_q != NULL);
+
+    client->req_buf_q = queue_init();
+    assert(client->req_buf_q != NULL);
+
 
     client->hash = NULL;
     client->req_id = 0;
@@ -316,7 +324,7 @@ void response_mapper_task(void * arg)
              * have got, merge or join or etc
              */
             queue_push(((server_info_t *)((client_info_t *)client)->server)->res_q, resp);
-            schedule_response_route((server_info_t *)((client_info_t *)client)->server);
+            wakeup_response_async_cb((server_info_t *)((client_info_t *)client)->server);
         }
     }
     DBG_FUNC_EXIT();
@@ -365,23 +373,39 @@ static inline write_req_t * write_req_init(void)
     return wr;
 }
 
-int proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len)
+static void req_async_send_cb(uv_async_t * async)
+{
+    client_info_t * client = (client_info_t *) async->data;
+    while (!is_empty(client->req_buf_q)) {
+        uv_buf_t * buf = (uv_buf_t *) queue_pop(client->req_buf_q);
+        if (client->status != CLOSED) {
+            /* write the data on to the tcp client req */
+            write_req_t * wr = write_req_init();
+            assert(wr != NULL);
+            DBG_ALLOC("ALLOC wr: %p\n", wr);
+            wr->buf.base = buf->base;
+            wr->buf.len  = buf->len;
+
+            int ret = uv_write(&wr->req, client->handle, &wr->buf, 1, write_end_cb);
+            assert(ret == 0);
+        }
+        DBG_ALLOC("FREE req_buf: %p\n", buf);
+        free(buf);
+    }
+}
+
+void proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len)
 {
     DBG_FUNC_ENTER();
-    if (client->status == CLOSED) {
-        DBG_ERR("connection is closed");
-        return -1;
-    }
-    /* write the data on to the tcp client req */
-    write_req_t * wr = write_req_init();
-    assert(wr != NULL);
-    DBG_ALLOC("ALLOC wr: %p\n", wr);
-
-    uv_mutex_lock(&client->mutex);
-    uv_buf_t buf = uv_buf_init((char *)req, len);
-    int ret = uv_write(&wr->req, client->handle, &buf, 1, write_end_cb);
-    uv_mutex_unlock(&client->mutex);
-    return ret;
+    uv_buf_t * buf = malloc(sizeof(uv_buf_t));
+    assert(buf != NULL);
+    buf->base = (char *)req;
+    buf->len  = len;
+    queue_push(client->req_buf_q, (void *)buf);
+    /* wake up req async send callback */
+    client->req_async.data = (void *)client;
+    uv_async_send(&client->req_async);
+    DBG_FUNC_EXIT();
 }
 
 int libuv_disconnect(handle_t handle) 

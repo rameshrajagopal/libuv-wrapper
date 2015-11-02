@@ -63,7 +63,7 @@ typedef struct
 int is_connection_active(client_info_t * client);
 client_info_t * proxy_slave_init(const char * addr, int port, uint32_t slave_num, uv_handle_t * server);
 int request_mapper_reply_dec(server_info_t * server, uint32_t req_id);
-int proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len);
-void schedule_response_route(server_info_t * server);
+void proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len);
+void wakeup_response_async_cb(server_info_t * server);
 
 #endif /*_LIBUV_SERVER_H_INCLUDED_ */
