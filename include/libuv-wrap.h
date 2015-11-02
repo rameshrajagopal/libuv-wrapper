@@ -78,5 +78,6 @@ int libuv_connect(const char * addr, int port, handle_t * handle);
 int libuv_send(handle_t handle, const uint8_t * data, uint32_t len, int * req_id);
 int libuv_recv(handle_t handle, int req_id, uint8_t * data, uint32_t nread, int * more);
 int libuv_disconnect(handle_t handle);
+void response_split_task(void * arg);
 
 #endif /*__LIBUV_WRAP_H_INCLUDED__*/

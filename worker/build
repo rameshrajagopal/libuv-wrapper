@@ -1,1 +1,1 @@
-gcc -g -Wall -std=c11 -I../include/ -o worker.elf -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include worker.c ../common/utils.c ../common/request_response.c -luv
+gcc -g -Wall -std=c11 -I../include/ -o worker.elf -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include worker.c ../common/server_common.c ../common/utils.c ../common/request_response.c -luv

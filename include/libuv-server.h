@@ -66,4 +66,15 @@ int request_mapper_reply_dec(server_info_t * server, uint32_t req_id);
 void proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len);
 void wakeup_response_async_cb(server_info_t * server);
 
+void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo);
+void request_split_task(uv_work_t * work_req);
+void schedule_work(connection_info_t * cinfo);
+void after_read_cb(uv_stream_t * handle, ssize_t nread, const uv_buf_t * buf);
+void alloc_cb(uv_handle_t * handle, size_t suggested_size, uv_buf_t * buf);
+connection_info_t * connection_info_init(void);
+void request_split_cleanup(uv_work_t * req, int status);
+void after_write_cb(uv_write_t * req, int status);
+void on_close_cb(uv_handle_t* handle);
+void after_shutdown_cb(uv_shutdown_t* req, int status);
+
 #endif /*_LIBUV_SERVER_H_INCLUDED_ */

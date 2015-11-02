@@ -51,6 +51,7 @@ int main(int argc, char * argv[])
 {
     if (argc != 5) {
         printf("Usage:\n");
+        printf("%s master_ip port concurrency repeat\n", argv[0]);
         return -1;
     }
     int port = atoi(argv[2]);
