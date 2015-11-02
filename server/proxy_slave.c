@@ -204,7 +204,7 @@ void response_split_task(void * arg)
                         uint32_t hdr_len = 0;
                         memcpy((uint8_t *)&hdr_len, temp, temp_len);
                         memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN - temp_len);
-                        printf("HEADER length: %u\n", hdr_len);
+                        DBG_VERBOSE("HEADER length: %u\n", hdr_len);
                         resp->header_len = hdr_len;
                         temp_len = 0;
                         rem_size -= HEADER_SIZE_LEN;
@@ -215,14 +215,14 @@ void response_split_task(void * arg)
                     {
                         memcpy((uint8_t *)&resp->hdr, temp, temp_len);
                         memcpy(((uint8_t *)&resp->hdr) + temp_len, cur_buf->buf + cur_buf->offset, resp->header_len - temp_len);
-                        printf("REQUEST id: %u\n", resp->hdr.id);
+                        DBG_VERBOSE("REQUEST id: %u\n", resp->hdr.id);
                         temp_len = 0;
                         rem_size -= resp->header_len;
                         stage = PAYLOAD_READ;
                         break;
                     }
                     default:
-                        printf("INVALID case needs to be find out");
+                        DBG_VERBOSE("INVALID case needs to be find out");
                         assert(0);
                         break;
                 }
@@ -245,7 +245,7 @@ void response_split_task(void * arg)
                         read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN, &resp->header_len);
                         cur_buf->offset += HEADER_SIZE_LEN;
                         rem_size -= HEADER_SIZE_LEN;
-                        printf("HEADER: %u\n", resp->header_len);
+                        DBG_VERBOSE("HEADER: %u\n", resp->header_len);
                         stage = HEADER_READ;
                     }
                     break;
@@ -257,7 +257,7 @@ void response_split_task(void * arg)
                         rem_size = 0;
                     } else {
                         read_pkt_hdr((uint8_t *)cur_buf->buf + cur_buf->offset, resp->header_len, &resp->hdr);
-                        printf("HEADER: %x %x %x %x\n", resp->hdr.magic, resp->hdr.len, resp->hdr.id, resp->hdr.future);
+                        DBG_VERBOSE("HEADER: %x %x %x %x\n", resp->hdr.magic, resp->hdr.len, resp->hdr.id, resp->hdr.future);
                         rem_size -= resp->header_len;
                         cur_buf->offset += resp->header_len;
                         stage = PAYLOAD_READ;
@@ -293,7 +293,7 @@ void response_split_task(void * arg)
                         }
                     }
                     /* response is done, push it to the queue */
-                    printf("GOT THE RESPONSE for ID: %u\n", resp->hdr.id);
+                    DBG_VERBOSE("GOT THE RESPONSE for ID: %u\n", resp->hdr.id);
                     queue_push(client->res_q, (void *)resp);
                     DBG_VERBOSE("Pushed response %p to Queue\n", resp);
                     resp = NULL;
