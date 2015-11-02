@@ -114,7 +114,7 @@ static void after_write_cb(uv_write_t * req, int status)
   DBG_ALLOC("FREE: wr: %p\n", wr);
   free(wr);
   if (status == 0) {
-    DBG_PRINT_INFO("status: %d\n", status);
+    DBG_INFO("status: %d\n", status);
     return;
   }
   DBG_ERR("uv_write : %s\n", uv_strerror(status));
@@ -451,13 +451,14 @@ static void on_connection_cb(uv_stream_t * stream, int status)
   cinfo->cid = ++server->cid;
   cinfo->status = ACTIVE;
   uv_mutex_unlock(&server->mutex);
-  DBG_INFO("%s: cinfo: %p client: %p id: %u\n", __FUNCTION__, cinfo, &cinfo->client, cinfo->cid);
+  DBG_INFO("cinfo: %p client: %p id: %u\n", cinfo, &cinfo->client, cinfo->cid);
   r = uv_read_start((uv_stream_t*)&cinfo->client, alloc_cb, after_read_cb);
   assert(r == 0);
   DBG_FUNC_EXIT();
 }
 
-static int tcp_server_init(server_info_t * server, const char * serv_addr, int port, on_connection_callback  connection)
+static int tcp_server_init(server_info_t * server, const char * serv_addr, int port, 
+                           on_connection_callback  connection)
 {
   struct sockaddr_in addr;
   int r;

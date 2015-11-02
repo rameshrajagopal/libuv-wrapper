@@ -24,7 +24,7 @@ static void response_send(request_t * req)
 
   int r = uv_write(&wr->req, (uv_stream_t *)&(((connection_info_t *)req->cinfo)->client), &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
-  assert(r == 0);
+  //assert(r == 0);
   DBG_FUNC_EXIT();
 }
 
@@ -33,6 +33,27 @@ static int is_connection_exist()
     return 1;
 }
 
+static void resp_async_cb(uv_async_t * async)
+{
+    server_info_t  * server = (server_info_t *)async->data;
+
+    while (!is_empty(server->res_q)) {
+        request_t * req = (request_t *) queue_pop(server->res_q);
+        /* find out cid still available in the hash table
+         * if it is there proceed to send response, otherwise, just 
+         * leave it 
+         */
+        if (is_connection_exist()) {
+            response_send(req);
+        }
+        /* free the request here */
+        DBG_ALLOC("FREE: req->buf: %p req %p\n", req->buf, req);
+        free(req->buf);
+        free(req);
+    }
+}
+
+#if 0
 static void response_send_task(uv_work_t * work)
 {
     resp_work_t * resp_work = (resp_work_t *) work->data;
@@ -53,30 +74,12 @@ static void response_send_task(uv_work_t * work)
         free(req);
     }
 }
-
 static void response_send_cleanup(uv_work_t * resp_work, int status)
 {
     DBG_FUNC_ENTER();
     DBG_ALLOC("FREE resp_work: %p status: %d\n", resp_work, status);
     free(resp_work);
     DBG_FUNC_EXIT();
-}
-
-#if 0
-static int libuv_idle_start(server_info_t * server)
-{
-    DBG_FUNC_ENTER();
-    idle_task_t * idle_task = malloc(sizeof(idle_task_t));
-    assert(idle_task != NULL);
-    DBG_ALLOC("ALLOC idle_task: %p\n", idle_task);
-
-    int r = uv_idle_init(uv_default_loop(), &idle_task->idle);
-    assert(r == 0);
-
-    r = uv_idle_start(&idle_task->idle, libuv_idle_cb);
-    assert(r == 0);
-    DBG_FUNC_EXIT();
-    return r;
 }
 #endif
 
@@ -111,7 +114,7 @@ static void after_write_cb(uv_write_t * req, int status)
   DBG_ALLOC("FREE: wr: %p\n", wr);
   free(wr);
   if (status == 0) {
-    DBG_PRINT_INFO("status: %d\n", status);
+    DBG_INFO("status: %d\n", status);
     return;
   }
   DBG_ERR("uv_write : %s\n", uv_strerror(status));
@@ -390,7 +393,8 @@ static void on_connection_cb(uv_stream_t * stream, int status)
   DBG_FUNC_EXIT();
 }
 
-static int tcp_server_init(server_info_t * server, const char * serv_addr, int port, on_connection_callback  connection)
+static int tcp_server_init(server_info_t * server, const char * serv_addr, 
+                           int port, on_connection_callback  connection)
 {
   struct sockaddr_in addr;
   int r;
@@ -421,6 +425,7 @@ void server_io_loop(void * arg)
     DBG_FUNC_EXIT();
 }
 
+#if 0
 void schedule_response_route(server_info_t * server)
 {
     resp_work_t * resp_work = malloc(sizeof(resp_work_t));
@@ -431,6 +436,13 @@ void schedule_response_route(server_info_t * server)
     resp_work->server = server;
     uv_queue_work(uv_default_loop(), &resp_work->req, response_send_task, response_send_cleanup);
     DBG_FUNC_EXIT();
+}
+#endif
+
+static void wakeup_async_cb(server_info_t * server)
+{
+   server->resp_async.data = (void *) server; 
+   uv_async_send(&server->resp_async);
 }
 
 static void request_worker_task(void * arg)
@@ -445,7 +457,7 @@ static void request_worker_task(void * arg)
         DO_WORK();
         /* form the response */
         queue_push(server->res_q, (void *)req);
-        schedule_response_route(server);
+        wakeup_async_cb(server);
     }
     DBG_FUNC_EXIT();
 }
@@ -466,6 +478,9 @@ server_info_t * server_info_init(void)
 
     server->res_q = queue_init();
     assert(server->res_q != NULL);
+
+    r = uv_async_init(uv_default_loop(), &server->resp_async, resp_async_cb);
+    assert(r == 0);
 
     for (int num = 0; num < MAX_NUM_WORKER_THREADS; ++num) {
         uv_thread_create(&server->tids[num], request_worker_task, (void *)server);  

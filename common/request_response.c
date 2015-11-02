@@ -60,7 +60,7 @@ uv_buf_t  create_request(const uint8_t * req, uint32_t len, uint32_t id)
     hdr.len   = len;
     hdr.id    = id;
     hdr.future = 0;
-    printf("REQ HEADER: %x %x %x\n", hdr.magic, hdr.len, hdr.id);
+    DBG_VERBOSE("REQ HEADER: %x %x %x\n", hdr.magic, hdr.len, hdr.id);
     write_pkt_hdr(&hdr, (uint8_t *)buf.base + offset);
     offset += sizeof(hdr);
     memcpy(buf.base + offset, req, len);
@@ -84,7 +84,7 @@ uv_buf_t  create_response(const uint8_t * res, uint32_t len, uint32_t id)
     hdr.len   = len;
     hdr.id    = id;
     hdr.future = 0;
-    printf("RES HEADER: %x %x %x\n", hdr.magic, hdr.len, hdr.id);
+    DBG_VERBOSE("RES HEADER: %x %x %x\n", hdr.magic, hdr.len, hdr.id);
     write_pkt_hdr(&hdr, (uint8_t *)buf.base + offset);
     offset += sizeof(hdr);
     memcpy(buf.base + offset, res, len);

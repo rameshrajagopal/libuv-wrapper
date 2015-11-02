@@ -18,7 +18,7 @@ static void on_connect_cb(uv_connect_t * req, int status)
     DBG_FUNC_ENTER();
     DBG_PRINT("%s client: %p\n", __FUNCTION__, client);
     if (status < 0) {
-        DBG_ERR("listen err %s\n", uv_strerror(status));
+        DBG_ERR("%s: listen err %s\n", __FUNCTION__, uv_strerror(status));
     } else {
         DBG_VERBOSE("connection is established\n");
         client->status = ACTIVE;

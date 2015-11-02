@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <uv.h>
+#include <utils.h>
 
 #define HEADER_SIZE_LEN   (4) /*fixed, should not be changed */
 #define HEADER_MAGIC      (0xDEADBEEF)
@@ -56,13 +57,6 @@ uv_buf_t  create_response(const uint8_t * res, uint32_t len, uint32_t id);
 req_buf_t * req_buf_init(char * base, ssize_t nread);
 txn_buf_t * txn_buf_init(char * base, ssize_t nread);
 
-#define DBG_ALLOC(fmt...) printf(fmt)
-#define DBG_ERR(fmt...) printf(fmt)
-#define DBG_INFO(fmt...) printf(fmt)
-#define DBG_PRINT(fmt...) printf(fmt)
-#define DBG_FUNC_ENTER()  printf("Enter %s:%d\n", __FUNCTION__, __LINE__)
-#define DBG_FUNC_EXIT()  printf("Exit %s:%d\n", __FUNCTION__, __LINE__)
-#define DBG_VERBOSE(fmt...) printf(fmt)
 
 
 #endif /*_REQUEST_RESPONSE_H_INCLUDED_ */

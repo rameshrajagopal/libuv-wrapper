@@ -36,6 +36,7 @@ typedef struct
     int num_slaves;
     proxy_slave_t * slave_hash;
     request_mapper_t * req_hash;
+    uv_async_t resp_async;
 }server_info_t;
 
 typedef struct 

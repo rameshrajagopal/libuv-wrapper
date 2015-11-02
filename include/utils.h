@@ -7,11 +7,25 @@
 #define  SERVER_ADDRESS  "192.168.0.241"
 #define  SERVER_PORT  7000
 
-#define DBG()  //printf("%s:%d\n", __FUNCTION__, __LINE__)
+#ifdef DEBUG
+#define DBG_ALLOC(fmt...) printf(fmt)
+#define DBG_ERR(fmt...) printf(fmt)
+#define DBG_INFO(fmt...) printf(fmt)
 #define DBG_PRINT(fmt...) printf(fmt)
-#define DBG_PRINT_ERR(fmt...) printf(fmt)
-#define DBG_PRINT_INFO(fmt...) printf(fmt)
+#define DBG_FUNC_ENTER()  printf("Enter %s:%d\n", __FUNCTION__, __LINE__)
+#define DBG_FUNC_EXIT()  printf("Exit %s:%d\n", __FUNCTION__, __LINE__)
+#define DBG_VERBOSE(fmt...) printf(fmt)
 #define DBG_LOG(fmt...) printf(fmt)
+#else
+#define DBG_ALLOC(fmt...) 
+#define DBG_ERR(fmt...) printf(fmt)
+#define DBG_INFO(fmt...) printf(fmt)
+#define DBG_PRINT(fmt...) 
+#define DBG_FUNC_ENTER() 
+#define DBG_FUNC_EXIT()  
+#define DBG_VERBOSE(fmt...) 
+#define DBG_LOG(fmt...) printf(fmt)
+#endif
 
 typedef void (*on_connection_callback)(uv_stream_t *, int);
 
