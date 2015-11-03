@@ -4,6 +4,10 @@
 #include <libuv-wrap.h>
 #include <libuv-server.h>
 
+#ifdef MASTER
+uint32_t add_client_request(server_info_t * server, uv_handle_t * client, uint32_t client_req_id);
+#endif
+
 void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
 {
     char temp[1024];
@@ -152,6 +156,12 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                             cur_buf->offset += len_to_read;
                             /* request is done, lets push it into the queue */
                             DBG_INFO("req_id: %u\n", req->hdr.id);
+#ifdef MASTER
+                            int client_req_id = add_client_request(
+                                    (server_info_t *)(((connection_info_t *)cinfo)->client.data), 
+                                    (uv_handle_t *) cinfo, req->hdr.id);
+                            req->hdr.id = client_req_id;
+#endif
                             req->cinfo = cinfo;
                             queue_push(push_q, (void *)req);
                             req = NULL;
