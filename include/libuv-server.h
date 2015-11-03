@@ -51,6 +51,7 @@ typedef struct
     uint32_t cid;
     queue_t * buf_q;
     connect_status_t status;
+    uv_mutex_t mutex;
 }connection_info_t;
 
 typedef struct 
@@ -66,7 +67,7 @@ int request_mapper_reply_dec(server_info_t * server, uint32_t req_id);
 void proxy_slave_send(client_info_t * client, const uint8_t * req, uint32_t len);
 void wakeup_response_async_cb(server_info_t * server);
 
-void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo);
+void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo);
 void request_split_task(uv_work_t * work_req);
 void schedule_work(connection_info_t * cinfo);
 void after_read_cb(uv_stream_t * handle, ssize_t nread, const uv_buf_t * buf);

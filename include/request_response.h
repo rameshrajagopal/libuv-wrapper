@@ -57,7 +57,6 @@ uv_buf_t  create_request(const uint8_t * req, uint32_t len, uint32_t id);
 uv_buf_t  create_response(const uint8_t * res, uint32_t len, uint32_t id);
 req_buf_t * req_buf_init(char * base, ssize_t nread);
 txn_buf_t * txn_buf_init(char * base, ssize_t nread);
-void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo);
 
 
 #endif /*_REQUEST_RESPONSE_H_INCLUDED_ */

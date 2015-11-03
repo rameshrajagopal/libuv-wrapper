@@ -8,7 +8,7 @@
 uint32_t add_client_request(server_info_t * server, uv_handle_t * client, uint32_t client_req_id);
 #endif
 
-void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
+void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo)
 {
     char temp[1024];
     uint32_t temp_len = 0;
@@ -18,6 +18,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
     uint32_t rem_size = 0;
     req_buf_t * cur_buf = NULL;
 
+    uv_mutex_lock(&cinfo->mutex);
     while (!is_empty(q)) {
         if (cur_buf != NULL) {
             DBG_ALLOC("%s: FREE cur_buf->buf: %p cur_buf: %p\n", __FUNCTION__, cur_buf->buf, cur_buf);
@@ -32,8 +33,9 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
             req  = cur_buf->req;
             payload_offset = req->offset;
         }
-        DBG_VERBOSE("buf: %p len: %ld offset: %ld req: %p stage: %d\n", cur_buf->buf, cur_buf->len, 
-                cur_buf->offset, cur_buf->req, cur_buf->stage);
+        DBG_INFO("%x buf: %p len: %ld offset: %ld req: %p stage: %d %d\n", 
+		(unsigned)pthread_self(), cur_buf->buf, cur_buf->len, 
+                cur_buf->offset, cur_buf->req, cur_buf->stage, payload_offset);
         /* write a response split using fixed len */
         rem_size = cur_buf->len - cur_buf->offset;
         DBG_VERBOSE("rem_size: %u\n", rem_size);
@@ -52,6 +54,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                             assert(req != NULL);
                             DBG_ALLOC("%s: ALLOC request: %p\n", __FUNCTION__, req);
                             req->buf = NULL;
+                            req->offset = 0;
                             if (temp_len < HEADER_SIZE) {
                                 memcpy((uint8_t *)&hdr_len, temp, temp_len);
                                 memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE - temp_len);
@@ -62,7 +65,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                                 memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE);
                                 temp_len -= HEADER_SIZE;
                             }
-                            DBG_INFO("HEADER length: %u\n", hdr_len);
+                            DBG_INFO("%d HEADER length: %u\n", __LINE__, hdr_len);
                             req->header_len = hdr_len;
                             stage = HEADER_READ;
                         }
@@ -86,7 +89,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                                 memcpy((uint8_t *)&req->hdr, temp, req->header_len);
                                 temp_len -= req->header_len;
                             }
-                            DBG_INFO("REQUEST id: %u\n", req->hdr.id);
+                            DBG_INFO("%d REQUEST id: %u\n", __LINE__, req->hdr.id);
                             stage = PAYLOAD_READ;
                             req->buf = malloc(req->hdr.len);
                             assert(req->buf != NULL);
@@ -119,7 +122,8 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                         req = malloc(sizeof(request_t));
                         assert(req != NULL);
                         DBG_ALLOC("%s: ALLOC request: %p\n", __FUNCTION__, req);
-                        req->buf = NULL;
+                        req->buf = NULL;	
+                        req->offset = 0;
 
                         read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE, &req->header_len);
                         cur_buf->offset += HEADER_SIZE;
@@ -136,7 +140,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                         rem_size = 0;
                     } else {
                         read_pkt_hdr((uint8_t *)cur_buf->buf + cur_buf->offset, req->header_len, &req->hdr);
-                        DBG_VERBOSE("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
+                        DBG_INFO("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
                         rem_size -= req->header_len;
                         cur_buf->offset += req->header_len;
                         req->buf = malloc(req->hdr.len);
@@ -166,7 +170,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                                     (uv_handle_t *) cinfo, req->hdr.id);
                             req->hdr.id = client_req_id;
 #endif
-                            req->cinfo = cinfo;
+                            req->cinfo = (uv_handle_t *)cinfo;
                             queue_push(push_q, (void *)req);
                             req = NULL;
                             stage = HEADER_LEN_READ;
@@ -181,7 +185,8 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
         }
     }
     if ((temp_len > 0) || (payload_offset > 0)) {
-        DBG_INFO("temp_len: %d payload_offset: %d\n", temp_len, payload_offset);
+        DBG_INFO("temp_len: %d payload_offset: %d stage: %d cur_buf %p\n", 
+                           temp_len, payload_offset, stage, cur_buf);
         cur_buf->req = req;
         cur_buf->stage = stage;
         cur_buf->offset -= temp_len;
@@ -190,6 +195,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
         }
         queue_push_front(q, (void *)cur_buf);
     }
+    uv_mutex_unlock(&(cinfo->mutex));
 }
 
 void request_split_task(uv_work_t * work_req)
@@ -197,7 +203,7 @@ void request_split_task(uv_work_t * work_req)
     req_work_t * work = (req_work_t *) work_req->data;
     connection_info_t * cinfo = work->cinfo;
     DBG_FUNC_ENTER();
-    request_split_push(cinfo->buf_q, ((server_info_t *)(cinfo->client.data))->req_q, (uv_handle_t *)cinfo);
+    request_split_push(cinfo->buf_q, ((server_info_t *)(cinfo->client.data))->req_q, cinfo);
     DBG_FUNC_EXIT();
 }
 
@@ -272,6 +278,8 @@ connection_info_t * connection_info_init(void)
     cinfo->buf_q = queue_init();
     assert(cinfo->buf_q != NULL);
     DBG_VERBOSE("cinfo->buf_q : %p\n", cinfo->buf_q);
+  
+    assert (uv_mutex_init(&cinfo->mutex) == 0);
 
     DBG_FUNC_EXIT();
     return cinfo;
