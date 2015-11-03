@@ -42,25 +42,27 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                 case HEADER_LEN_READ:
                     {
                         uint32_t hdr_len = 0;
-                        if ((rem_size + temp_len) < HEADER_LEN_READ) {
+                        if ((rem_size + temp_len) < HEADER_SIZE) {
                             memcpy(temp + temp_len, cur_buf->buf + cur_buf->offset, rem_size);
                             temp_len += rem_size;
                             rem_size = 0;
+                            cur_buf->offset += rem_size;
                         } else {
                             req = malloc(sizeof(request_t));
                             assert(req != NULL);
                             DBG_ALLOC("%s: ALLOC request: %p\n", __FUNCTION__, req);
                             req->buf = NULL;
-                            if (temp_len < HEADER_LEN_READ) {
+                            if (temp_len < HEADER_SIZE) {
                                 memcpy((uint8_t *)&hdr_len, temp, temp_len);
-                                memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN - temp_len);
-                                DBG_VERBOSE("HEADER length: %u\n", hdr_len);
+                                memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE - temp_len);
                                 temp_len = 0;
-                                rem_size -= HEADER_SIZE_LEN + temp_len;
+                                rem_size -= HEADER_SIZE + temp_len;
+                                cur_buf->offset += (HEADER_SIZE - temp_len);
                             } else {
-                                memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE_LEN);
-                                temp_len -= HEADER_SIZE_LEN;
+                                memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE);
+                                temp_len -= HEADER_SIZE;
                             }
+                            DBG_INFO("HEADER length: %u\n", hdr_len);
                             req->header_len = hdr_len;
                             stage = HEADER_READ;
                         }
@@ -72,17 +74,19 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                             memcpy(temp + temp_len, cur_buf->buf + cur_buf->offset, rem_size);
                             temp_len += rem_size;
                             rem_size = 0;
+                            cur_buf->offset += rem_size;
                         } else  {
                             if (temp_len < req->header_len) {
                                 memcpy((uint8_t *)&req->hdr, temp, temp_len);
                                 memcpy(((uint8_t *)&req->hdr) + temp_len, cur_buf->buf + cur_buf->offset, req->header_len - temp_len);
                                 temp_len = 0;
                                 rem_size -= (req->header_len - temp_len);
+                                cur_buf->offset += (req->header_len - temp_len);
                             } else {
                                 memcpy((uint8_t *)&req->hdr, temp, req->header_len);
-                                DBG_VERBOSE("REQUEST id: %u\n", req->hdr.id);
                                 temp_len -= req->header_len;
                             }
+                            DBG_INFO("REQUEST id: %u\n", req->hdr.id);
                             stage = PAYLOAD_READ;
                             req->buf = malloc(req->hdr.len);
                             assert(req->buf != NULL);
@@ -106,7 +110,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
         while (rem_size > 0) {
             switch(stage) {
                 case HEADER_LEN_READ:
-                    if (rem_size < HEADER_SIZE_LEN){
+                    if (rem_size < HEADER_SIZE){
                         memcpy(temp, cur_buf->buf + cur_buf->offset, rem_size);
                         temp_len = rem_size;
                         cur_buf->offset += rem_size;
@@ -117,10 +121,10 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
                         DBG_ALLOC("%s: ALLOC request: %p\n", __FUNCTION__, req);
                         req->buf = NULL;
 
-                        read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN, &req->header_len);
-                        cur_buf->offset += HEADER_SIZE_LEN;
-                        rem_size -= HEADER_SIZE_LEN;
-                        DBG_VERBOSE("HEADER: %u\n", req->header_len);
+                        read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE, &req->header_len);
+                        cur_buf->offset += HEADER_SIZE;
+                        rem_size -= HEADER_SIZE;
+                        DBG_INFO("HEADER: %u\n", req->header_len);
                         stage = HEADER_READ;
                     }
                     break;
@@ -177,6 +181,7 @@ void request_split_push(queue_t * q, queue_t * push_q, uv_handle_t * cinfo)
         }
     }
     if ((temp_len > 0) || (payload_offset > 0)) {
+        DBG_INFO("temp_len: %d payload_offset: %d\n", temp_len, payload_offset);
         cur_buf->req = req;
         cur_buf->stage = stage;
         cur_buf->offset -= temp_len;

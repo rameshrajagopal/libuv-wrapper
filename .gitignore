@@ -1,3 +1,5 @@
 *.swp
 *.elf
+cscope.out
+core
 

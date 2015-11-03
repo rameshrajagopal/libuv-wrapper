@@ -47,15 +47,15 @@ uv_buf_t  create_request(const uint8_t * req, uint32_t len, uint32_t id)
 {
     pkt_hdr_t hdr = {0};
     uint32_t header_len = sizeof(hdr);
-    uint32_t total_len =  HEADER_SIZE_LEN + header_len + len;
+    uint32_t total_len =  HEADER_SIZE + header_len + len;
     uint32_t offset = 0;
 
     uv_buf_t buf;
     buf.base = malloc(total_len * sizeof(char));
     assert(buf.base != NULL);
     buf.len  = total_len;
-    memcpy(buf.base, &header_len, HEADER_SIZE_LEN);
-    offset += HEADER_SIZE_LEN;
+    memcpy(buf.base, &header_len, HEADER_SIZE);
+    offset += HEADER_SIZE;
     hdr.magic = HEADER_MAGIC;
     hdr.len   = len;
     hdr.id    = id;
@@ -71,15 +71,15 @@ uv_buf_t  create_response(const uint8_t * res, uint32_t len, uint32_t id)
 {
     pkt_hdr_t hdr = {0};
     uint32_t header_len = sizeof(hdr);
-    uint32_t total_len =  HEADER_SIZE_LEN + header_len + len;
+    uint32_t total_len =  HEADER_SIZE + header_len + len;
     uint32_t offset = 0;
 
     uv_buf_t buf;
     buf.base = malloc(total_len * sizeof(char));
     assert(buf.base != NULL);
     buf.len  = total_len;
-    memcpy(buf.base, &header_len, HEADER_SIZE_LEN);
-    offset += HEADER_SIZE_LEN;
+    memcpy(buf.base, &header_len, HEADER_SIZE);
+    offset += HEADER_SIZE;
     hdr.magic = HEADER_MAGIC; 
     hdr.len   = len;
     hdr.id    = id;
