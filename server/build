@@ -1,1 +1,1 @@
-gcc -g -Wall -std=c11 -I../include/ -o server.elf -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include server.c proxy_slave.c ../common/server_common.c ../common/utils.c ../common/request_response.c ../common/client_common.c -luv
+gcc -g -Wall -std=c11 -DMASTER -I../include/ -o server.elf -D_GNU_SOURCE -I/home/ramesh/explore/libuv/include server.c proxy_slave.c ../common/server_common.c ../common/utils.c ../common/request_response.c ../common/client_common.c -luv
