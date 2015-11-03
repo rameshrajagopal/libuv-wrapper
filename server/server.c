@@ -15,6 +15,7 @@ typedef struct {
 slave_conf_t slaves_conf[] = {
     {"127.0.0.1", 7000},
     {"127.0.0.1", 9000},
+    {"192.168.0.203", 7000},
 };
 #define MAX_NUM_SLAVES  (sizeof(slaves_conf)/sizeof(slaves_conf[0]))
 
