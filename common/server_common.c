@@ -33,7 +33,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
             req  = cur_buf->req;
             payload_offset = req->offset;
         }
-        DBG_INFO("%x buf: %p len: %ld offset: %ld req: %p stage: %d %d\n", 
+        DBG_VERBOSE("%x buf: %p len: %ld offset: %ld req: %p stage: %d %d\n", 
 		(unsigned)pthread_self(), cur_buf->buf, cur_buf->len, 
                 cur_buf->offset, cur_buf->req, cur_buf->stage, payload_offset);
         /* write a response split using fixed len */
@@ -65,7 +65,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
                                 memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE);
                                 temp_len -= HEADER_SIZE;
                             }
-                            DBG_INFO("%d HEADER length: %u\n", __LINE__, hdr_len);
+                            DBG_VERBOSE("%d HEADER length: %u\n", __LINE__, hdr_len);
                             req->header_len = hdr_len;
                             stage = HEADER_READ;
                         }
@@ -89,7 +89,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
                                 memcpy((uint8_t *)&req->hdr, temp, req->header_len);
                                 temp_len -= req->header_len;
                             }
-                            DBG_INFO("%d REQUEST id: %u\n", __LINE__, req->hdr.id);
+                            DBG_VERBOSE("%d REQUEST id: %u\n", __LINE__, req->hdr.id);
                             stage = PAYLOAD_READ;
                             req->buf = malloc(req->hdr.len);
                             assert(req->buf != NULL);
@@ -128,7 +128,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
                         read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE, &req->header_len);
                         cur_buf->offset += HEADER_SIZE;
                         rem_size -= HEADER_SIZE;
-                        DBG_INFO("HEADER: %u\n", req->header_len);
+                        DBG_VERBOSE("HEADER: %u\n", req->header_len);
                         stage = HEADER_READ;
                     }
                     break;
@@ -140,7 +140,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
                         rem_size = 0;
                     } else {
                         read_pkt_hdr((uint8_t *)cur_buf->buf + cur_buf->offset, req->header_len, &req->hdr);
-                        DBG_INFO("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
+                        DBG_VERBOSE("HEADER: %x %x %x %x\n", req->hdr.magic, req->hdr.len, req->hdr.id, req->hdr.future);
                         rem_size -= req->header_len;
                         cur_buf->offset += req->header_len;
                         req->buf = malloc(req->hdr.len);
@@ -163,7 +163,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
                             rem_size -= len_to_read;
                             cur_buf->offset += len_to_read;
                             /* request is done, lets push it into the queue */
-                            DBG_INFO("req_id: %u\n", req->hdr.id);
+                            DBG_VERBOSE("req_id: %u\n", req->hdr.id);
 #ifdef MASTER
                             int client_req_id = add_client_request(
                                     (server_info_t *)(((connection_info_t *)cinfo)->client.data), 
@@ -185,7 +185,7 @@ void request_split_push(queue_t * q, queue_t * push_q, connection_info_t * cinfo
         }
     }
     if ((temp_len > 0) || (payload_offset > 0)) {
-        DBG_INFO("temp_len: %d payload_offset: %d stage: %d cur_buf %p\n", 
+        DBG_VERBOSE("temp_len: %d payload_offset: %d stage: %d cur_buf %p\n", 
                            temp_len, payload_offset, stage, cur_buf);
         cur_buf->req = req;
         cur_buf->stage = stage;

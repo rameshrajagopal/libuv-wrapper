@@ -45,7 +45,6 @@ static void response_send(server_info_t * server, response_t * res)
   DBG_INFO("res: %d\n", client_req_id);
   int r = uv_write(&wr->req, (uv_stream_t *)&cinfo->client , &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
-  else DBG_INFO("no connection to client\n");
   DBG_FUNC_EXIT();
 }
 
