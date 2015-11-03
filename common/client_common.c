@@ -33,7 +33,7 @@ void response_split_task(void * arg)
                 case HEADER_LEN_READ:
                     {
                         uint32_t hdr_len = 0;
-                        if ((rem_size + temp_len) < HEADER_LEN_READ) {
+                        if ((rem_size + temp_len) < HEADER_SIZE) {
                             memcpy(temp + temp_len, cur_buf->buf + cur_buf->offset, rem_size);
                             temp_len += rem_size;
                             rem_size = 0;
@@ -42,15 +42,15 @@ void response_split_task(void * arg)
                             assert(resp != NULL);
                             DBG_ALLOC("%s: ALLOC request: %p\n", __FUNCTION__, resp);
                             resp->buf = NULL;
-                            if (temp_len < HEADER_LEN_READ) {
+                            if (temp_len < HEADER_SIZE) {
                                 memcpy((uint8_t *)&hdr_len, temp, temp_len);
-                                memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN - temp_len);
+                                memcpy(((uint8_t *)&hdr_len) + temp_len, cur_buf->buf + cur_buf->offset, HEADER_SIZE - temp_len);
                                 DBG_VERBOSE("HEADER length: %u\n", hdr_len);
                                 temp_len = 0;
-                                rem_size -= HEADER_SIZE_LEN + temp_len;
+                                rem_size -= HEADER_SIZE + temp_len;
                             } else {
-                                memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE_LEN);
-                                temp_len -= HEADER_SIZE_LEN;
+                                memcpy((uint8_t *)&hdr_len, temp, HEADER_SIZE);
+                                temp_len -= HEADER_SIZE;
                             }
                             resp->header_len = hdr_len;
                             stage = HEADER_READ;
@@ -97,7 +97,7 @@ void response_split_task(void * arg)
         while (rem_size > 0) {
             switch(stage) {
                 case HEADER_LEN_READ:
-                    if (rem_size < HEADER_SIZE_LEN){
+                    if (rem_size < HEADER_SIZE){
                         memcpy(temp, cur_buf->buf + cur_buf->offset, rem_size);
                         temp_len = rem_size;
                         cur_buf->offset += rem_size;
@@ -108,9 +108,9 @@ void response_split_task(void * arg)
                         DBG_PRINT("Allocated resp: %p\n", resp);
                         resp->buf = NULL;
 
-                        read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE_LEN, &resp->header_len);
-                        cur_buf->offset += HEADER_SIZE_LEN;
-                        rem_size -= HEADER_SIZE_LEN;
+                        read_uint32_t((uint8_t *)cur_buf->buf + cur_buf->offset, HEADER_SIZE, &resp->header_len);
+                        cur_buf->offset += HEADER_SIZE;
+                        rem_size -= HEADER_SIZE;
                         DBG_VERBOSE("HEADER: %u\n", resp->header_len);
                         stage = HEADER_READ;
                     }
