@@ -19,8 +19,8 @@ static void response_send(request_t * req)
   assert(wr != NULL);
   DBG_ALLOC("ALLOC: wr %p\n", wr);
 
-  wr->buf = create_response(req->buf, req->hdr.len, req->hdr.id);
 
+  wr->buf = create_response(malloc(16 * 1024 * sizeof(char)), 16 * 1024, req->hdr.id);
   DBG_INFO("res_id: %d\n", req->hdr.id);
   int r = uv_write(&wr->req, (uv_stream_t *)&(((connection_info_t *)req->cinfo)->client), &wr->buf, 1, after_write_cb);
   if (r != 0) DBG_VERBOSE("rvalue: %s\n", uv_strerror(r));
@@ -114,20 +114,6 @@ static void resp_async_cb(uv_async_t * async)
         free(req);
     }
 }
-
-#if 0
-void schedule_response_route(server_info_t * server)
-{
-    resp_work_t * resp_work = malloc(sizeof(resp_work_t));
-    assert(resp_work != NULL);
-    DBG_ALLOC("ALLOC resp_work: %p\n", resp_work);
-
-    resp_work->req.data = (void *) resp_work;
-    resp_work->server = server;
-    uv_queue_work(uv_default_loop(), &resp_work->req, response_send_task, response_send_cleanup);
-    DBG_FUNC_EXIT();
-}
-#endif
 
 static void wakeup_async_cb(server_info_t * server)
 {
