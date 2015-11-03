@@ -1,0 +1,12 @@
+
+Run1: 
+Setup: 
+Client 100 x 100
+Master with 2 slaves 
+
+Total requests: 10000 concurrency: 100
+Total millisec: 8188035
+Min value: 126
+
+
+
